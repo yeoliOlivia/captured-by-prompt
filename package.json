@@ -1,0 +1,24 @@
+{
+  "name": "captured-by-prompt",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": ["apps/*", "packages/*"],
+  "engines": { "node": ">=22.13.0" },
+  "scripts": {
+    "dev:api": "npm run dev --workspace @captured/api",
+    "dev:mobile": "npm run start --workspace @captured/mobile",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build:api": "npm run build --workspace @captured/api",
+    "eval": "tsx scripts/evaluate.ts",
+    "token": "node -e \"console.log(require('node:crypto').randomBytes(32).toString('hex'))\""
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3",
+    "tsx": "^4.20.0",
+    "vitest": "^5.0.1",
+    "@types/node": "^24.0.0"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@captured/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
+    "start": "tsx --env-file-if-exists=.env src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@captured/core": "*",
+    "@google/genai": "2.24.0",
+    "@typesafe-ai/sdk": "0.6.0",
+    "fastify": "5.12.5",
+    "sharp": "^0.35.4"
+  }
+}

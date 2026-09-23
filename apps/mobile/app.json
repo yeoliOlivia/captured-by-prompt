@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "Captured by Prompt",
+    "slug": "captured-by-prompt",
+    "scheme": "captured",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "dev.captured.byprompt",
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "Connect to your local development server for photo search.",
+        "NSAppTransportSecurity": { "NSAllowsLocalNetworking": true }
+      }
+    },
+    "plugins": [
+      "expo-router", "expo-sqlite", "expo-secure-store",
+      ["expo-image-picker", {
+        "photosPermission": "Select up to 30 photos to search. Your entire library is not scanned.",
+        "cameraPermission": false,
+        "microphonePermission": false
+      }]
+    ]
+  }
+}

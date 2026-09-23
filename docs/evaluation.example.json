@@ -1,0 +1,25 @@
+{
+  "note": "Replace paths with 20–30 non-sensitive photos you own. The first ten cover the fixed queries; the rest are distractors. Labels are chosen before calling AI.",
+  "photos": [
+    { "id": "red-umbrella", "path": "photos/red-umbrella.jpg", "capturedAt": null },
+    { "id": "green-booths", "path": "photos/green-booths.jpg", "capturedAt": null },
+    { "id": "green-booths-night", "path": "photos/green-booths-night.jpg", "capturedAt": null },
+    { "id": "lemon-recipe", "path": "photos/lemon-recipe.jpg", "capturedAt": null },
+    { "id": "dog-on-sofa", "path": "photos/dog-on-sofa.jpg", "capturedAt": null },
+    { "id": "blue-bicycle", "path": "photos/blue-bicycle.jpg", "capturedAt": null },
+    { "id": "mountain-lake", "path": "photos/mountain-lake.jpg", "capturedAt": null },
+    { "id": "birthday-cake", "path": "photos/birthday-cake.jpg", "capturedAt": null },
+    { "id": "beach-july", "path": "photos/beach-july.jpg", "capturedAt": "2026-07-04" },
+    { "id": "beach-winter", "path": "photos/beach-winter.jpg", "capturedAt": "2026-01-04" },
+    { "id": "distractor-01", "path": "photos/distractor-01.jpg", "capturedAt": null },
+    { "id": "distractor-02", "path": "photos/distractor-02.jpg", "capturedAt": null },
+    { "id": "distractor-03", "path": "photos/distractor-03.jpg", "capturedAt": null },
+    { "id": "distractor-04", "path": "photos/distractor-04.jpg", "capturedAt": null },
+    { "id": "distractor-05", "path": "photos/distractor-05.jpg", "capturedAt": null },
+    { "id": "distractor-06", "path": "photos/distractor-06.jpg", "capturedAt": null },
+    { "id": "distractor-07", "path": "photos/distractor-07.jpg", "capturedAt": null },
+    { "id": "distractor-08", "path": "photos/distractor-08.jpg", "capturedAt": null },
+    { "id": "distractor-09", "path": "photos/distractor-09.jpg", "capturedAt": null },
+    { "id": "distractor-10", "path": "photos/distractor-10.jpg", "capturedAt": null }
+  ]
+}
