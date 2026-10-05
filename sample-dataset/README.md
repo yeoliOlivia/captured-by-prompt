@@ -30,3 +30,11 @@ Put JPEG, PNG, or WebP images in a subfolder such as `sample-dataset/my-photos/`
 ## Larger collection: COCO validation 2017
 
 Run `python3 scripts/download-coco-val.py` to download and unpack 5,000 photos to `sample-dataset/coco-val2017/` (about 800 MB download). Then start the frontend or click Reload photo folders. Images stay ignored by Git. Only pixels are used for search; no annotation files are imported. The gallery shows 60 photos at a time.
+
+## Providers and visual verification
+
+The local frontend supports Google Gemini (gemini-embedding-2, 3072 dimensions) and Alibaba hosted Qwen (qwen3-vl-embedding, 2560 dimensions). Choose a provider when loading its API key. Qwen requires a Beijing-region Model Studio key; images and queries go to that region. The hosted model is not the open Qwen3-VL-Embedding-8B checkpoint. Each provider has its own saved image vectors. Switching providers requires indexing only photos not yet indexed by that provider; switching back reuses the previous vectors. Keys are held in memory and never written into image records.
+
+The optional double-check sends the top 12 embedding candidates and the original query to gemini-3.8-flash or qwen3-vl-plus. It asks for a shared checklist preserving AND, OR, NOT, subjects, and relationships, then assesses every image against every requirement. The backend requires all checklist items to pass before showing an AI-assessed match. Any failure means mismatch; uncertainty remains uncertainty. Evidence is available on each result. These are fallible model judgments, not guarantees or proof of absence. Only the top 12 are checked; other matches may exist. Verification adds a vision request and is cached only for the server session. An invalid or incomplete assessment fails visibly rather than silently falling back to supposedly verified results.
+
+For future Modal deployment, benchmark the open Qwen/Qwen3-VL-Embedding-8B and Qwen/Qwen3-VL-Reranker-8B separately. The dedicated reranker returns relevance scores rather than checklist explanations. The provider implementation lives in playground/providers.ts; a Modal adapter must use a distinct cache identity for its checkpoint, dimensions, and preprocessing, and must not reuse the hosted Qwen vectors.

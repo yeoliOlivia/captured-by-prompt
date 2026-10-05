@@ -13,24 +13,33 @@ function gallery(photos, ranked = false, keepPage = false) {
   if (!keepPage) visiblePhotos = 60;
   galleryPhotos = photos; galleryRanked = ranked;
   $('gallery').replaceChildren();
-  if (!photos.length) { const empty = document.createElement('p'); empty.className = 'empty'; empty.textContent = 'Add some photos to start your collection.'; $('gallery').append(empty); }
+  if (!photos.length) { const empty = document.createElement('p'); empty.className = 'empty'; empty.textContent = ranked ? 'No candidates available to check.' : 'Add some photos to start your collection.'; $('gallery').append(empty); }
   photos.slice(0,visiblePhotos).forEach((photo, index) => {
     const figure = document.createElement('figure'); figure.className = 'photo';
     const wrap = document.createElement('div'); wrap.className = 'photo-image';
     const img = document.createElement('img'); img.src = photo.image; img.alt = `Photo ${index + 1}`; img.loading = 'lazy'; wrap.append(img);
     const badge = document.createElement('span'); badge.className = 'rank'; badge.textContent = ranked ? `#${index + 1}` : photo.indexed ? 'Ready' : 'Not analyzed'; wrap.append(badge);
     const caption = document.createElement('figcaption'); caption.textContent = photo.name;
-    figure.append(wrap, caption); $('gallery').append(figure);
+    figure.append(wrap, caption);
+    if (photo.verification) {
+      const details = document.createElement('details'); details.className = 'details';
+      const summary = document.createElement('summary');
+      summary.textContent = {match:'All requirements matched (AI assessment)',uncertain:'Uncertain match',mismatch:'Does not meet every requirement'}[photo.verification.verdict];
+      details.append(summary);
+      photo.verification.checks.forEach((check,i)=>{ const line = document.createElement('p'); line.textContent = `${i+1}. ${check.status}: ${check.evidence}`; details.append(line); });
+      figure.append(details);
+    }
+    $('gallery').append(figure);
   });
   $('more').hidden = visiblePhotos >= photos.length;
   $('more').textContent = `Show more (${Math.min(visiblePhotos,photos.length)} of ${photos.length})`;
 }
 async function refresh() {
   const response = await fetch('/state'); if (!response.ok) throw new Error('Could not load collection.'); state = await response.json();
-  $('connection-status').textContent = state.configured ? 'Gemini key loaded' : 'Gemini key not loaded';
+  $('connection-status').textContent = state.configured ? `${state.providerLabel} key loaded` : 'API key not loaded';
   $('key-form').hidden = state.configured; $('connected-controls').hidden = !state.configured;
   $('index-status').textContent = `${state.indexed} of ${state.total} photos ready`;
-  $('index-detail').textContent = state.indexing ? `Analyzing ${state.current}…` : 'Gemini reads the image pixels. No captions or filename matching.';
+  $('index-detail').textContent = state.indexing ? `Analyzing ${state.current}…` : `${state.providerLabel} reads the image pixels. No captions or filename matching.`;
   $('progress').max = Math.max(1,state.total); $('progress').value = state.indexed;
   $('index').disabled = !state.configured || state.indexing || state.searching || uploading || state.indexed === state.total;
   $('index').textContent = state.indexed ? 'Analyze remaining' : 'Analyze photos';
@@ -39,18 +48,22 @@ async function refresh() {
   $('files').disabled = uploading || state.indexing || state.searching;
   $('disconnect').disabled = state.indexing || state.searching;
   $('folder').textContent = state.datasetDir;
-  $('calls').textContent = `${state.model} · ${state.dimensions.toLocaleString()} dimensions · Gemini requests this session: ${state.imageCalls} image / ${state.queryCalls} search`;
+  $('calls').textContent = `${state.model} · ${state.dimensions.toLocaleString()} dimensions · Requests this session: ${state.imageCalls} image / ${state.queryCalls} search / ${state.verificationCalls} visual check`;
   if (state.error && state.error !== lastError) notice(state.error, true); lastError = state.error;
   const next = JSON.stringify(state.photos);
   if (!showingResults && next !== signature) { gallery(state.photos,false,true); signature = next; }
   if (!showingResults) $('results-subtitle').textContent = `${state.total} saved photos · ${state.indexed} searchable`;
 }
-$('key-form').onsubmit = async e => { e.preventDefault(); $('connect').disabled = true; try { await request('/connect', { key: $('key').value }); $('key').value = ''; notice('Key loaded. Analyze your photos to make them searchable.'); await refresh(); $('key-panel').open = false; } catch(e) { notice(e.message,true); } finally { $('connect').disabled = false; } };
+$('key-form').onsubmit = async e => { e.preventDefault(); $('connect').disabled = true; try { await request('/connect', { key: $('key').value, provider: $('provider').value }); $('key').value = ''; showingResults = false; signature = ''; $('results-title').textContent = 'Your collection'; $('requirements').hidden = true; notice('Key loaded. Analyze your photos to make them searchable.'); await refresh(); $('key-panel').open = false; } catch(e) { notice(e.message,true); } finally { $('connect').disabled = false; } };
 $('disconnect').onclick = async () => { try { await request('/disconnect',{}); await refresh(); $('key-panel').open = true; notice('Key forgotten. Saved photos and embeddings are still here.'); } catch(e) { notice(e.message,true); } };
-$('index').onclick = async () => { $('index').disabled = true; try { await request('/index',{}); notice('Analyzing images with Gemini. Completed photos are saved as we go.'); await refresh(); } catch(e) { notice(e.message,true); } };
+$('index').onclick = async () => { $('index').disabled = true; try { await request('/index',{}); notice('Analyzing images with the selected provider. Completed photos are saved as we go.'); await refresh(); } catch(e) { notice(e.message,true); } };
 $('pause').onclick = async () => { try { await request('/pause',{}); notice('Pausing after the current photo finishes.'); } catch(e) { notice(e.message,true); } };
-$('search-form').onsubmit = async e => { e.preventDefault(); if ($('search').disabled) return; searching = true; $('search').disabled = true; $('search').textContent = 'Searching…'; try { const result = await request('/search',{query:$('prompt').value}); showingResults = true; gallery(result.results,true); $('results-title').textContent = 'Closest photos'; $('results-subtitle').textContent = `${result.results.length} photos ranked by image similarity`; notice(result.cached ? 'Reused this search’s Gemini embedding. No additional API call.' : 'Ranked using a real Gemini query embedding. These are relative matches, not guaranteed matches.'); } catch(e) { notice(e.message,true); } finally { searching = false; $('search').textContent = 'Search'; await refresh().catch(e=>notice(e.message,true)); } };
-$('reset').onclick = () => { showingResults = false; signature = ''; $('results-title').textContent = 'Your collection'; $('prompt').value = ''; notice(''); refresh().catch(e=>notice(e.message,true)); };
+$('search-form').onsubmit = async e => { e.preventDefault(); if ($('search').disabled) return; searching = true; $('search').disabled = true; $('search').textContent = 'Searching…'; try { const result = await request('/search',{query:$('prompt').value,verify:$('verify').checked}); showingResults = true; gallery(result.results,true); $('results-title').textContent = result.verified ? 'Visually checked candidates' : 'Closest photos';
+    $('requirements').hidden = !result.verified;
+    $('requirements').textContent = result.verified ? result.requirements.map((r,i)=>`${i+1}. ${r}`).join(' • ') : '';
+    $('results-subtitle').textContent = result.verified ? `${result.checked} of ${result.totalCandidates} candidates checked by ${result.verificationModel}` : `${result.results.length} photos ranked by image similarity`;
+    notice(result.verified ? `Matches first, then uncertain and nonmatching candidates. Only the top ${result.checked} embedding candidates were checked; other matches may exist. ${result.verificationCached ? 'Reused the saved visual check for this session.' : 'AI judgments can be wrong; open a photo’s assessment to see each check.'}` : result.cached ? 'Reused this query embedding. No additional API call.' : 'Ranked by embedding similarity. Enable double-check to assess individual requirements.'); } catch(e) { notice(e.message,true); } finally { searching = false; $('search').textContent = 'Search'; await refresh().catch(e=>notice(e.message,true)); } };
+$('reset').onclick = () => { showingResults = false; signature = ''; $('results-title').textContent = 'Your collection'; $('prompt').value = ''; $('requirements').hidden = true; notice(''); refresh().catch(e=>notice(e.message,true)); };
 async function upload(files) {
   if (uploading || state?.indexing || state?.searching) { notice('Wait for the current operation to finish.',true); return; }
   uploading = true; await refresh(); let added = 0, duplicates = 0; const failures = [];
@@ -62,7 +75,7 @@ async function upload(files) {
       catch(e) { failures.push(`${file.name}: ${e.message}`); }
     }
     showingResults = false; signature = ''; $('results-title').textContent = 'Your collection';
-    notice(failures.length ? failures.join(' • ') : `${added} photos saved${duplicates ? `; ${duplicates} duplicates skipped` : ''}. ${state.configured ? 'Click Analyze photos to index them.' : 'Add your Gemini key when you’re ready to analyze them.'}`,!!failures.length);
+    notice(failures.length ? failures.join(' • ') : `${added} photos saved${duplicates ? `; ${duplicates} duplicates skipped` : ''}. ${state.configured ? 'Click Analyze photos to index them.' : 'Add your provider key when you’re ready to analyze them.'}`,!!failures.length);
   } finally { uploading = false; $('files').value = ''; $('upload-status').textContent = `${added} saved · ${duplicates} duplicates · ${failures.length} failed`; await refresh(); }
 }
 $('files').onchange = e => upload(e.target.files).catch(e=>notice(e.message,true));
@@ -84,3 +97,10 @@ $('scan').onclick = async () => {
 };
 
 $('more').onclick = () => { visiblePhotos += 60; gallery(galleryPhotos,galleryRanked,true); };
+
+$('provider').onchange = () => {
+  $('key').value = '';
+  $('provider-note').textContent = $('provider').value === 'qwen'
+    ? 'Requires an Alibaba Model Studio Beijing-region key. Photos are sent to that region. Hosted qwen3-vl-embedding is not the open Qwen3-VL-Embedding-8B checkpoint. Qwen requires its own image index; your Gemini index stays saved.'
+    : 'Google AI Studio key. Your existing Gemini index stays saved when switching providers.';
+};

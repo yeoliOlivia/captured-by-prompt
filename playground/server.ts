@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
-import { GoogleGenAI } from '@google/genai';
+import { CONFIG, geminiProvider, qwenProvider, vector, validateVerification, type Provider, type ProviderName } from './providers.js';
+export { geminiProvider } from './providers.js';
 import sharp from 'sharp';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename, readdir, stat } from 'node:fs/promises';
@@ -7,39 +8,33 @@ import { resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 const directory = fileURLToPath(new URL('.', import.meta.url));
-const MODEL = 'gemini-embedding-2';
-const DIMENSIONS = 3072;
 const PHOTO_LIMIT = 10000;
-type Photo = { id: string; name: string; embedding?: number[]; model?: string; source?: { path: string; size: number; mtimeMs: number } };
-type Provider = { image(bytes: Buffer): Promise<number[]>; text(query: string): Promise<number[]> };
-function vector(values: unknown): number[] {
-  const result = z.array(z.number().finite()).length(DIMENSIONS).parse(values);
-  const norm = Math.hypot(...result);
-  if (!norm) throw new Error('Invalid embedding');
-  return result.map(v => v / norm);
-}
-export function geminiProvider(key: string): Provider {
-  const client = new GoogleGenAI({ apiKey: key, httpOptions: { timeout: 45000, retryOptions: { attempts: 1 } } });
-  const embed = async (contents: any) => vector((await client.models.embedContent({ model: MODEL, contents, config: { outputDimensionality: DIMENSIONS } })).embeddings?.[0]?.values);
-  return { image: bytes => embed([{ inlineData: { mimeType: 'image/jpeg', data: bytes.toString('base64') } }]), text: query => embed(query) };
-}
+type Photo = { id: string; name: string; embedding?: number[]; model?: string; embeddings?: Record<string,number[]>; source?: { path: string; size: number; mtimeMs: number } };
 function providerError(e: unknown) {
   const status = Number((e as any)?.status ?? (e as any)?.statusCode);
-  if (status === 429) return 'Gemini quota reached. Your progress is saved; wait and try again.';
-  if (status === 400 || status === 401 || status === 403) return 'Gemini rejected the request. Check your key and whether this project can use gemini-embedding-2.';
-  return 'Gemini could not complete the request. Your photos and completed embeddings are saved. Try again.';
+  if (status === 429) return 'Provider quota reached. Your progress is saved; wait and try again.';
+  if (status === 400 || status === 401 || status === 403) return 'Provider rejected the request. Check the API key, region, and model access.';
+  return 'The model could not complete the request. Your photos and completed embeddings are saved. Try again.';
 }
-export async function createPlaygroundServer(options: { datasetDir?: string; providerFactory?: (key: string) => Provider } = {}) {
+export async function createPlaygroundServer(options: { datasetDir?: string; providerFactory?: (key: string, name: ProviderName) => Provider } = {}) {
   const datasetDir = options.datasetDir ?? resolve(directory, '../sample-dataset');
   await mkdir(datasetDir, { recursive: true });
   const photos: Photo[] = [];
+  let selected: ProviderName = 'gemini';
+  const cacheKey = (name: ProviderName) => `${CONFIG[name].model}:${CONFIG[name].dimensions}`;
+  const embeddingFor = (photo: Photo) => photo.embeddings?.[cacheKey(selected)];
   for (const name of await readdir(datasetDir)) {
     if (!/^[a-f0-9]{64}\.json$/.test(name)) continue;
     const photo = JSON.parse(await readFile(resolve(datasetDir, name), 'utf8')) as Photo;
     if (photo.id !== name.slice(0, -5)) throw new Error('Invalid dataset record');
     await stat(resolve(datasetDir, `${photo.id}.jpg`));
-    if (photo.model !== MODEL || photo.embedding?.length !== DIMENSIONS) delete photo.embedding;
-    if (photo.embedding) photo.embedding = vector(photo.embedding);
+    photo.embeddings ??= {};
+    // Migrate legacy caches without discarding either provider's vectors.
+    for (const name of Object.keys(CONFIG) as ProviderName[]) {
+      const config = CONFIG[name];
+      if (photo.model === config.model && photo.embedding?.length === config.dimensions && !photo.embeddings[cacheKey(name)]) photo.embeddings[cacheKey(name)] = photo.embedding;
+      if (photo.embeddings[cacheKey(name)]) photo.embeddings[cacheKey(name)] = vector(photo.embeddings[cacheKey(name)],config.dimensions);
+    }
     photos.push(photo);
   }
   const save = async (photo: Photo) => {
@@ -87,9 +82,10 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
   let task: Promise<void> | null = null;
   let searching = false, uploading = false, pause = false, scanning = false;
   let error = initialScan.skipped.length ? `Could not import ${initialScan.skipped.length} files (unsupported image or collection limit).` : '', current = '';
-  let imageCalls = 0, queryCalls = 0;
+  let imageCalls = 0, queryCalls = 0, verificationCalls = 0;
+  const verifiedQueries = new Map<string, ReturnType<typeof validateVerification>>();
   const queries = new Map<string, number[]>();
-  const expose = (p: Photo) => ({ id: p.id, name: p.name, image: `/photos/${p.id}`, indexed: !!p.embedding });
+  const expose = (p: Photo) => ({ id: p.id, name: p.name, image: `/photos/${p.id}`, indexed: !!embeddingFor(p) });
   server.addHook('onRequest', async (request, reply) => {
     const host = request.headers.host ?? '';
     if (!/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host)) return reply.code(403).send({ message: 'Open this page on localhost.' });
@@ -110,7 +106,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
     if (!photo) return reply.code(404).send({ message: 'Photo not found.' });
     return reply.type('image/jpeg').send(await readFile(resolve(datasetDir, `${photo.id}.jpg`)));
   });
-  server.get('/state', async () => ({ photos: photos.map(expose), datasetDir, configured: !!provider, indexing: !!task, searching, indexed: photos.filter(p => p.embedding).length, total: photos.length, current, error, imageCalls, queryCalls, dimensions: DIMENSIONS, model: MODEL }));
+  server.get('/state', async () => ({ photos: photos.map(expose), datasetDir, configured: !!provider, indexing: !!task, searching, indexed: photos.filter(p => embeddingFor(p)).length, total: photos.length, current, error, imageCalls, queryCalls, dimensions: CONFIG[selected].dimensions, model: CONFIG[selected].model, provider: selected, providerLabel: CONFIG[selected].label, verificationModel: CONFIG[selected].vision, verificationCalls }));
   server.post('/scan', async (_, reply) => {
     if (task || uploading || searching || scanning) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
     scanning = true;
@@ -136,31 +132,32 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
     } finally { uploading = false; }
   });
   server.post('/connect', async (req, reply) => {
-    if (task || searching) return reply.code(409).send({ message: 'Wait for Gemini to finish.' });
-    const { key } = z.object({ key: z.string().trim().min(20).max(8192) }).parse(req.body);
+    if (task || searching) return reply.code(409).send({ message: 'Wait for the current model request to finish.' });
+    const { key, provider: name } = z.object({ key: z.string().trim().min(20).max(8192), provider: z.enum(['gemini','qwen']).default('gemini') }).parse(req.body);
     if (/\s/.test(key)) return reply.code(400).send({ message: 'Paste only the API key.' });
-    provider = (options.providerFactory ?? geminiProvider)(key); error = '';
+    provider = options.providerFactory ? options.providerFactory(key,name) : name === 'qwen' ? qwenProvider(key) : geminiProvider(key); selected = name; queries.clear(); verifiedQueries.clear(); error = '';
     return { configured: true };
   });
   server.post('/disconnect', async (_, reply) => {
     if (task || searching) return reply.code(409).send({ message: 'Pause indexing and wait for Gemini to finish.' });
-    provider = null; queries.clear(); return { configured: false };
+    provider = null; queries.clear(); verifiedQueries.clear(); return { configured: false };
   });
   server.post('/index', async (_, reply) => {
-    if (!provider) return reply.code(503).send({ message: 'Add your Gemini key first.' });
+    if (!provider) return reply.code(503).send({ message: 'Add a provider API key first.' });
     if (searching || uploading || scanning) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
-    if (task || photos.every(p => p.embedding)) return { indexing: !!task };
+    if (task || photos.every(p => embeddingFor(p))) return { indexing: !!task };
     error = ''; pause = false;
     task = (async () => {
       try {
-        for (const p of photos.filter(p => !p.embedding)) {
+        for (const p of photos.filter(p => !embeddingFor(p))) {
           if (pause) break;
           current = p.name;
           const bytes = await readFile(resolve(datasetDir, `${p.id}.jpg`));
           imageCalls++;
-          const embedding = vector(await provider!.image(bytes));
-          await save({ ...p, embedding, model: MODEL });
-          p.embedding = embedding; p.model = MODEL;
+          const embedding = vector(await provider!.image(bytes), CONFIG[selected].dimensions);
+          const embeddings = { ...p.embeddings, [cacheKey(selected)]: embedding };
+          await save({ ...p, embeddings });
+          p.embeddings = embeddings;
         }
       } catch (e) { error = providerError(e); }
       finally { current = ''; task = null; }
@@ -169,18 +166,36 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
   });
   server.post('/pause', async () => { pause = true; return { message: 'Pausing after the current photo.' }; });
   server.post('/search', async (req, reply) => {
-    if (!provider) return reply.code(503).send({ message: 'Add your Gemini key first.' });
-    if (task || searching) return reply.code(409).send({ message: 'Wait for the current Gemini request to finish.' });
-    const { query } = z.object({ query: z.string().trim().min(1).max(1000) }).parse(req.body);
-    const indexed = photos.filter(p => p.embedding);
+    if (!provider) return reply.code(503).send({ message: 'Add a provider API key first.' });
+    if (task || searching) return reply.code(409).send({ message: 'Wait for the current model request to finish.' });
+    const { query, verify } = z.object({ query: z.string().trim().min(1).max(1000), verify: z.boolean().default(false) }).parse(req.body);
+    const indexed = photos.filter(p => embeddingFor(p));
     if (!indexed.length) return reply.code(400).send({ message: 'Analyze your photos first.' });
     searching = true;
     try {
       const cached = queries.has(query);
       let embedding = queries.get(query);
-      if (!embedding) { queryCalls++; embedding = vector(await provider.text(query)); if (queries.size >= 100) queries.delete(queries.keys().next().value!); queries.set(query, embedding); }
-      const results = indexed.map(p => ({ ...expose(p), similarity: p.embedding!.reduce((sum,v,i) => sum + v * embedding![i], 0) })).sort((a,b) => b.similarity-a.similarity);
-      return { results, cached, model: MODEL };
+      if (!embedding) { queryCalls++; embedding = vector(await provider.text(query),CONFIG[selected].dimensions); if (queries.size >= 100) queries.delete(queries.keys().next().value!); queries.set(query, embedding); }
+      const results = indexed.map(p => ({ ...expose(p), similarity: embeddingFor(p)!.reduce((sum,v,i) => sum + v * embedding![i], 0) })).sort((a,b) => b.similarity-a.similarity);
+      if (!verify) return { results, cached, model: CONFIG[selected].model, verified: false };
+      if (!provider.verify) throw new Error('Verification unavailable');
+      const candidates = results.slice(0,12);
+      const verificationKey = JSON.stringify([selected,query,candidates.map(p=>p.id)]);
+      let verification = verifiedQueries.get(verificationKey);
+      const verificationCached = !!verification;
+      if (!verification) {
+        const images = await Promise.all(candidates.map(async p=>({id:p.id,bytes:await readFile(resolve(datasetDir,`${p.id}.jpg`))})));
+        verificationCalls++;
+        verification = validateVerification(await provider.verify(query,images),candidates.map(p=>p.id));
+        if (verifiedQueries.size >= 50) verifiedQueries.delete(verifiedQueries.keys().next().value!);
+        verifiedQueries.set(verificationKey,verification);
+      }
+      const priorities = { match:0, uncertain:1, mismatch:2 };
+      const checked = candidates.map(p=>({ ...p, verification: verification!.results.find(r=>r.id===p.id)! }))
+        .sort((a,b)=>priorities[a.verification.verdict as keyof typeof priorities]-priorities[b.verification.verdict as keyof typeof priorities] || b.similarity-a.similarity);
+      return { results: checked, cached, model: CONFIG[selected].model, verified:true, verificationCached, verificationModel: CONFIG[selected].vision,
+        requirements:verification.requirements, checked:candidates.length, totalCandidates:results.length };
+
     } catch (e) { return reply.code(502).send({ message: providerError(e) }); }
     finally { searching = false; }
   });
