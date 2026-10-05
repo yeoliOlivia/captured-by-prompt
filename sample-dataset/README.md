@@ -6,7 +6,7 @@ Start from the repository root with `npm run dev:web`, then open http://127.0.0.
 
 Search calls gemini-embedding-2 directly for images and queries and ranks by cosine similarity. No captions, OCR, filename matching, or mock fallback. Search ranks all indexed images; it does not guarantee a relevant match exists. New image and query requests use the project's Gemini quota and billing. Repeated queries are cached for the running session.
 
-Uploaded copies are resized, not archival originals. Up to 500 photos, 25 MB per upload; JPEG, PNG, WebP. Keep this folder in a permanent location if you want long-term storage. In the temporary test copy, macOS may eventually clear the folder.
+Uploaded copies are resized, not archival originals. Up to 10,000 photos, 25 MB per upload; JPEG, PNG, WebP. Keep this folder in a permanent location if you want long-term storage. In the temporary test copy, macOS may eventually clear the folder.
 
 Run `npm run test:web` for isolated tests using a stub provider (no Google requests).
 
@@ -26,3 +26,7 @@ Only these bundled samples are checked in. Additional uploads stay local unless 
 ## Loading plain photo folders
 
 Put JPEG, PNG, or WebP images in a subfolder such as `sample-dataset/my-photos/`. Start the frontend, or click **Reload photo folders** while it is running. It imports images recursively, skips duplicate image content, and leaves source files untouched. Imported copies and embeddings are cached in the dataset root; removing source files does not remove previously imported photos. COCO128 is included in `coco128/`. Other folders remain ignored by Git unless explicitly added.
+
+## Larger collection: COCO validation 2017
+
+Run `python3 scripts/download-coco-val.py` to download and unpack 5,000 photos to `sample-dataset/coco-val2017/` (about 800 MB download). Then start the frontend or click Reload photo folders. Images stay ignored by Git. Only pixels are used for search; no annotation files are imported. The gallery shows 60 photos at a time.

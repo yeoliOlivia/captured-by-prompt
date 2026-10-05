@@ -8,10 +8,13 @@ async function request(path, body, extra = {}) {
   return result;
 }
 function notice(text, error = false) { $('notice').textContent = text; $('notice').hidden = !text; $('notice').dataset.error = String(error); }
-function gallery(photos, ranked = false) {
+let galleryPhotos = [], galleryRanked = false, visiblePhotos = 60;
+function gallery(photos, ranked = false, keepPage = false) {
+  if (!keepPage) visiblePhotos = 60;
+  galleryPhotos = photos; galleryRanked = ranked;
   $('gallery').replaceChildren();
   if (!photos.length) { const empty = document.createElement('p'); empty.className = 'empty'; empty.textContent = 'Add some photos to start your collection.'; $('gallery').append(empty); }
-  photos.forEach((photo, index) => {
+  photos.slice(0,visiblePhotos).forEach((photo, index) => {
     const figure = document.createElement('figure'); figure.className = 'photo';
     const wrap = document.createElement('div'); wrap.className = 'photo-image';
     const img = document.createElement('img'); img.src = photo.image; img.alt = `Photo ${index + 1}`; img.loading = 'lazy'; wrap.append(img);
@@ -19,6 +22,8 @@ function gallery(photos, ranked = false) {
     const caption = document.createElement('figcaption'); caption.textContent = photo.name;
     figure.append(wrap, caption); $('gallery').append(figure);
   });
+  $('more').hidden = visiblePhotos >= photos.length;
+  $('more').textContent = `Show more (${Math.min(visiblePhotos,photos.length)} of ${photos.length})`;
 }
 async function refresh() {
   const response = await fetch('/state'); if (!response.ok) throw new Error('Could not load collection.'); state = await response.json();
@@ -37,7 +42,7 @@ async function refresh() {
   $('calls').textContent = `${state.model} · ${state.dimensions.toLocaleString()} dimensions · Gemini requests this session: ${state.imageCalls} image / ${state.queryCalls} search`;
   if (state.error && state.error !== lastError) notice(state.error, true); lastError = state.error;
   const next = JSON.stringify(state.photos);
-  if (!showingResults && next !== signature) { gallery(state.photos); signature = next; }
+  if (!showingResults && next !== signature) { gallery(state.photos,false,true); signature = next; }
   if (!showingResults) $('results-subtitle').textContent = `${state.total} saved photos · ${state.indexed} searchable`;
 }
 $('key-form').onsubmit = async e => { e.preventDefault(); $('connect').disabled = true; try { await request('/connect', { key: $('key').value }); $('key').value = ''; notice('Key loaded. Analyze your photos to make them searchable.'); await refresh(); $('key-panel').open = false; } catch(e) { notice(e.message,true); } finally { $('connect').disabled = false; } };
@@ -77,3 +82,5 @@ $('scan').onclick = async () => {
   } catch(e) { notice(e.message,true); }
   finally { $('scan').disabled = false; }
 };
+
+$('more').onclick = () => { visiblePhotos += 60; gallery(galleryPhotos,galleryRanked,true); };

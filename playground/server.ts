@@ -2,14 +2,15 @@ import Fastify from 'fastify';
 import { GoogleGenAI } from '@google/genai';
 import sharp from 'sharp';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { mkdir, readFile, writeFile, rename, readdir } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { mkdir, readFile, writeFile, rename, readdir, stat } from 'node:fs/promises';
+import { resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 const directory = fileURLToPath(new URL('.', import.meta.url));
 const MODEL = 'gemini-embedding-2';
 const DIMENSIONS = 3072;
-type Photo = { id: string; name: string; embedding?: number[]; model?: string };
+const PHOTO_LIMIT = 10000;
+type Photo = { id: string; name: string; embedding?: number[]; model?: string; source?: { path: string; size: number; mtimeMs: number } };
 type Provider = { image(bytes: Buffer): Promise<number[]>; text(query: string): Promise<number[]> };
 function vector(values: unknown): number[] {
   const result = z.array(z.number().finite()).length(DIMENSIONS).parse(values);
@@ -36,7 +37,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
     if (!/^[a-f0-9]{64}\.json$/.test(name)) continue;
     const photo = JSON.parse(await readFile(resolve(datasetDir, name), 'utf8')) as Photo;
     if (photo.id !== name.slice(0, -5)) throw new Error('Invalid dataset record');
-    await readFile(resolve(datasetDir, `${photo.id}.jpg`));
+    await stat(resolve(datasetDir, `${photo.id}.jpg`));
     if (photo.model !== MODEL || photo.embedding?.length !== DIMENSIONS) delete photo.embedding;
     if (photo.embedding) photo.embedding = vector(photo.embedding);
     photos.push(photo);
@@ -50,6 +51,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
   async function scanFolders() {
     let added = 0;
     const skipped: string[] = [];
+    const sources = new Map(photos.filter(p => p.source).map(p => [p.source!.path, p.source!]));
     async function walk(folder: string) {
       for (const entry of (await readdir(folder, { withFileTypes: true })).sort((a,b) => a.name.localeCompare(b.name))) {
         if (entry.name.startsWith('.')) continue;
@@ -58,13 +60,17 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
         if (!entry.isFile() || !/\.(jpe?g|png|webp)$/i.test(entry.name)) continue;
         // These are the app's generated image copies, not source photos.
         if (folder === datasetDir && /^[a-f0-9]{64}\.jpg$/.test(entry.name)) continue;
-        if (photos.length >= 500) { skipped.push(entry.name); continue; }
+        if (photos.length >= PHOTO_LIMIT) { skipped.push(entry.name); continue; }
         try {
+          const info = await stat(path);
+          const source = { path: relative(datasetDir, path), size: info.size, mtimeMs: info.mtimeMs };
+          const previous = sources.get(source.path);
+          if (previous && previous.size === source.size && previous.mtimeMs === source.mtimeMs) continue;
           const bytes = await sharp(path, { limitInputPixels: 80_000_000 }).rotate()
             .resize(1024,1024,{fit:'inside',withoutEnlargement:true}).flatten({ background: '#ffffff' }).jpeg({ quality: 90 }).toBuffer();
           const id = createHash('sha256').update(bytes).digest('hex');
           if (photos.some(p => p.id === id)) continue;
-          const photo: Photo = { id, name: entry.name };
+          const photo: Photo = { id, name: entry.name, source };
           await writeFile(resolve(datasetDir, `${id}.jpg`), bytes);
           await save(photo); photos.push(photo); added++;
         } catch { skipped.push(entry.name); }
@@ -121,7 +127,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
       const id = createHash('sha256').update(bytes).digest('hex');
       const existing = photos.find(p => p.id === id);
       if (existing) return { photo: expose(existing), duplicate: true };
-      if (photos.length >= 500) return reply.code(400).send({ message: 'This collection supports up to 500 photos.' });
+      if (photos.length >= PHOTO_LIMIT) return reply.code(400).send({ message: 'This collection supports up to 10,000 photos.' });
       const name = decodeURIComponent(String(req.headers['x-file-name'] ?? 'Photo')).replace(/[\x00-\x1f]/g, '').slice(0,200) || 'Photo';
       const photo: Photo = { id, name };
       await writeFile(resolve(datasetDir, `${id}.jpg`), bytes);
