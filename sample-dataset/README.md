@@ -22,3 +22,7 @@ These resized copies come from the [scikit-image v0.24.0 sample collection](http
 - coins.png: Greek coins from Pompeii, scikit-image sample collection.
 
 Only these bundled samples are checked in. Additional uploads stay local unless explicitly added to Git.
+
+## Loading plain photo folders
+
+Put JPEG, PNG, or WebP images in a subfolder such as `sample-dataset/my-photos/`. Start the frontend, or click **Reload photo folders** while it is running. It imports images recursively, skips duplicate image content, and leaves source files untouched. Imported copies and embeddings are cached in the dataset root; removing source files does not remove previously imported photos. COCO128 is included in `coco128/`. Other folders remain ignored by Git unless explicitly added.

@@ -66,3 +66,14 @@ $('drop').ondragleave = () => $('drop').classList.remove('drag');
 $('drop').ondrop = e => { e.preventDefault(); $('drop').classList.remove('drag'); upload(e.dataTransfer.files).catch(e=>notice(e.message,true)); };
 refresh().catch(e=>notice(e.message,true));
 setInterval(()=>refresh().catch(()=>notice('Server unavailable. Restart it and reload this page.',true)),1500);
+
+$('scan').onclick = async () => {
+  $('scan').disabled = true;
+  try {
+    const result = await request('/scan',{});
+    showingResults = false; signature = ''; $('results-title').textContent = 'Your collection';
+    notice(`${result.added} new photos imported from sample-dataset.${result.skipped.length ? ` ${result.skipped.length} files skipped (unreadable or collection limit).` : ''}`,!!result.skipped.length);
+    await refresh();
+  } catch(e) { notice(e.message,true); }
+  finally { $('scan').disabled = false; }
+};

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
@@ -50,3 +50,21 @@ assert.equal((await state()).indexed,2);
 assert.ok(!(JSON.stringify(await state())).includes('test-only-key'));
 await server.close();
 console.log('PASS: uploads, duplicates, invalid images, request security, pixel-only ranking, query caching, restart persistence, key forgetting. Gemini provider mocked; no real API calls.');
+
+const folderDir = await mkdtemp(join(tmpdir(),'captured-folders-'));
+await mkdir(join(folderDir,'my-photos/nested'),{recursive:true});
+await writeFile(join(folderDir,'my-photos/a.png'),bytes);
+await writeFile(join(folderDir,'my-photos/nested/duplicate.png'),bytes);
+await writeFile(join(folderDir,'my-photos/broken.jpg'),'not an image');
+server = await createPlaygroundServer({datasetDir:folderDir,providerFactory});
+await connectPage();
+assert.equal((await state()).total,1);
+assert.equal((await post('/scan')).json().added,0);
+await writeFile(join(folderDir,'my-photos/new.png'),await sharp({create:{width:50,height:50,channels:3,background:'#abcdef'}}).png().toBuffer());
+const scan = (await post('/scan')).json();
+assert.equal(scan.added,1); assert.equal(scan.skipped.length,1);
+await server.close();
+server = await createPlaygroundServer({datasetDir:folderDir,providerFactory});
+assert.equal((await state()).total,2);
+await server.close();
+console.log('PASS: recursive photo folders, deduplication, invalid-file handling, rescan and restart.');

@@ -15,3 +15,5 @@ artifacts/local/
 sample-dataset/*
 !sample-dataset/README.md
 playground/preview*.png
+
+!sample-dataset/coco128/

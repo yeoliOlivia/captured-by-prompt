@@ -46,13 +46,41 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
     await writeFile(`${path}.tmp`, JSON.stringify(photo));
     await rename(`${path}.tmp`, path);
   };
+  // Plain photo folders can be copied into sample-dataset without index files.
+  async function scanFolders() {
+    let added = 0;
+    const skipped: string[] = [];
+    async function walk(folder: string) {
+      for (const entry of (await readdir(folder, { withFileTypes: true })).sort((a,b) => a.name.localeCompare(b.name))) {
+        if (entry.name.startsWith('.')) continue;
+        const path = resolve(folder, entry.name);
+        if (entry.isDirectory()) { await walk(path); continue; }
+        if (!entry.isFile() || !/\.(jpe?g|png|webp)$/i.test(entry.name)) continue;
+        // These are the app's generated image copies, not source photos.
+        if (folder === datasetDir && /^[a-f0-9]{64}\.jpg$/.test(entry.name)) continue;
+        if (photos.length >= 500) { skipped.push(entry.name); continue; }
+        try {
+          const bytes = await sharp(path, { limitInputPixels: 80_000_000 }).rotate()
+            .resize(1024,1024,{fit:'inside',withoutEnlargement:true}).flatten({ background: '#ffffff' }).jpeg({ quality: 90 }).toBuffer();
+          const id = createHash('sha256').update(bytes).digest('hex');
+          if (photos.some(p => p.id === id)) continue;
+          const photo: Photo = { id, name: entry.name };
+          await writeFile(resolve(datasetDir, `${id}.jpg`), bytes);
+          await save(photo); photos.push(photo); added++;
+        } catch { skipped.push(entry.name); }
+      }
+    }
+    await walk(datasetDir);
+    return { added, skipped };
+  }
+  const initialScan = await scanFolders();
   const server = Fastify({ logger: false, bodyLimit: 25 * 1024 * 1024 });
   server.addContentTypeParser('application/octet-stream', { parseAs: 'buffer' }, (_, body, done) => done(null, body));
   const session = randomBytes(32).toString('hex');
   let provider: Provider | null = null;
   let task: Promise<void> | null = null;
-  let searching = false, uploading = false, pause = false;
-  let error = '', current = '';
+  let searching = false, uploading = false, pause = false, scanning = false;
+  let error = initialScan.skipped.length ? `Could not import ${initialScan.skipped.length} files (unsupported image or collection limit).` : '', current = '';
   let imageCalls = 0, queryCalls = 0;
   const queries = new Map<string, number[]>();
   const expose = (p: Photo) => ({ id: p.id, name: p.name, image: `/photos/${p.id}`, indexed: !!p.embedding });
@@ -77,8 +105,13 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
     return reply.type('image/jpeg').send(await readFile(resolve(datasetDir, `${photo.id}.jpg`)));
   });
   server.get('/state', async () => ({ photos: photos.map(expose), datasetDir, configured: !!provider, indexing: !!task, searching, indexed: photos.filter(p => p.embedding).length, total: photos.length, current, error, imageCalls, queryCalls, model: MODEL }));
+  server.post('/scan', async (_, reply) => {
+    if (task || uploading || searching || scanning) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
+    scanning = true;
+    try { return await scanFolders(); } finally { scanning = false; }
+  });
   server.post('/upload', async (req, reply) => {
-    if (uploading || task || searching) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
+    if (uploading || task || searching || scanning) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
     if (!Buffer.isBuffer(req.body)) return reply.code(400).send({ message: 'Choose an image file.' });
     uploading = true;
     try {
@@ -109,7 +142,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
   });
   server.post('/index', async (_, reply) => {
     if (!provider) return reply.code(503).send({ message: 'Add your Gemini key first.' });
-    if (searching || uploading) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
+    if (searching || uploading || scanning) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
     if (task || photos.every(p => p.embedding)) return { indexing: !!task };
     error = ''; pause = false;
     task = (async () => {
