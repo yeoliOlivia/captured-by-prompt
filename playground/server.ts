@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 const directory = fileURLToPath(new URL('.', import.meta.url));
 const MODEL = 'gemini-embedding-2';
-const DIMENSIONS = 768;
+const DIMENSIONS = 3072;
 type Photo = { id: string; name: string; embedding?: number[]; model?: string };
 type Provider = { image(bytes: Buffer): Promise<number[]>; text(query: string): Promise<number[]> };
 function vector(values: unknown): number[] {
@@ -37,7 +37,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
     const photo = JSON.parse(await readFile(resolve(datasetDir, name), 'utf8')) as Photo;
     if (photo.id !== name.slice(0, -5)) throw new Error('Invalid dataset record');
     await readFile(resolve(datasetDir, `${photo.id}.jpg`));
-    if (photo.model !== MODEL) delete photo.embedding;
+    if (photo.model !== MODEL || photo.embedding?.length !== DIMENSIONS) delete photo.embedding;
     if (photo.embedding) photo.embedding = vector(photo.embedding);
     photos.push(photo);
   }
@@ -104,7 +104,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
     if (!photo) return reply.code(404).send({ message: 'Photo not found.' });
     return reply.type('image/jpeg').send(await readFile(resolve(datasetDir, `${photo.id}.jpg`)));
   });
-  server.get('/state', async () => ({ photos: photos.map(expose), datasetDir, configured: !!provider, indexing: !!task, searching, indexed: photos.filter(p => p.embedding).length, total: photos.length, current, error, imageCalls, queryCalls, model: MODEL }));
+  server.get('/state', async () => ({ photos: photos.map(expose), datasetDir, configured: !!provider, indexing: !!task, searching, indexed: photos.filter(p => p.embedding).length, total: photos.length, current, error, imageCalls, queryCalls, dimensions: DIMENSIONS, model: MODEL }));
   server.post('/scan', async (_, reply) => {
     if (task || uploading || searching || scanning) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
     scanning = true;

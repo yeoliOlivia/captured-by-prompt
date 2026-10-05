@@ -34,7 +34,7 @@ async function refresh() {
   $('files').disabled = uploading || state.indexing || state.searching;
   $('disconnect').disabled = state.indexing || state.searching;
   $('folder').textContent = state.datasetDir;
-  $('calls').textContent = `${state.model} · Gemini requests this session: ${state.imageCalls} image / ${state.queryCalls} search`;
+  $('calls').textContent = `${state.model} · ${state.dimensions.toLocaleString()} dimensions · Gemini requests this session: ${state.imageCalls} image / ${state.queryCalls} search`;
   if (state.error && state.error !== lastError) notice(state.error, true); lastError = state.error;
   const next = JSON.stringify(state.photos);
   if (!showingResults && next !== signature) { gallery(state.photos); signature = next; }
