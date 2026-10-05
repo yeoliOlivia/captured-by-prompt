@@ -26,3 +26,7 @@ For now: it starts with 20 photos, support up to 30s.
 - Health: provider readiness, free-access configuration, and quota errors.
 
 API keys on the backend. 
+
+## Local browser frontend
+
+Run `npm run dev:web` and open http://127.0.0.1:8790. Upload photos, load a Gemini API key, analyze, and search with image embeddings. Collection copies and embeddings persist in [`sample-dataset`](sample-dataset/README.md); the key stays in memory. This frontend uses image similarity without captions or keyword matching.

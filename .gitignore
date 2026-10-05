@@ -10,3 +10,8 @@ coverage/
 apps/mobile/ios/
 apps/mobile/android/
 artifacts/local/
+
+# Local photo data and browser checks
+sample-dataset/*
+!sample-dataset/README.md
+playground/preview*.png

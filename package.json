@@ -6,6 +6,8 @@
   "workspaces": ["apps/*", "packages/*"],
   "engines": { "node": ">=22.13.0" },
   "scripts": {
+    "dev:web": "node --import tsx playground/server.ts",
+    "test:web": "node --import tsx playground/verify.ts",
     "dev:api": "npm run dev --workspace @captured/api",
     "dev:mobile": "npm run start --workspace @captured/mobile",
     "typecheck": "npm run typecheck --workspaces --if-present",
