@@ -2,6 +2,8 @@
 
 # Captured by Prompt — Free 30-photo prototype
 
+Product ideas, experiments, and future direction live in [Ideas and roadmap](docs/ideas-and-roadmap.md).
+
 ## Summary
 
 For now: it starts with 20 photos, support up to 30s. 
