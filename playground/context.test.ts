@@ -10,7 +10,7 @@ import { visibleMatches,thresholdValue } from './search-utils.js';
 describe('personal context and search thresholds',()=>{
   it('filters absolute scores without inventing confidence or filling empty results',()=>{
     const photos = [{id:'a',similarity:.8},{id:'b',similarity:.5},{id:'c',similarity:.49},{id:'d',similarity:.9,verification:{verdict:'mismatch'}},{id:'e',similarity:.6,verification:{verdict:'uncertain'}}];
-    expect(visibleMatches(photos,.5).map(p=>p.id)).toEqual(['a','b']);
+    expect(visibleMatches(photos,.5).map(p=>p.id)).toEqual(['a']);
     expect(visibleMatches(photos,.4,true).map(p=>p.id)).toEqual(['a','b','c','e']);
     expect(visibleMatches(photos,.99)).toEqual([]);
     expect(thresholdValue('garbage')).toBe(.5);expect(thresholdValue(null)).toBe(.5);expect(thresholdValue('-1')).toBe(-1);

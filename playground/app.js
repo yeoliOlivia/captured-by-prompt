@@ -1,6 +1,8 @@
 import { thresholdValue, visibleMatches } from './search-utils.js';
 const $ = id => document.getElementById(id);
 const token = document.querySelector('meta[name="playground-session"]').content;
+let searchActive = false, searchSequence = 0;
+try { const saved = sessionStorage.getItem('captured-active-query'); if (saved) { searchActive = true; $('prompt').value = saved; } } catch {}
 let state, uploading = false, searching = false, showingResults = false, signature = '', lastError = '';
 async function request(path, body, extra = {}) {
   const response = await fetch(path, { method: 'POST', headers: { 'x-playground-session': token, 'content-type': 'application/json', ...extra.headers }, body: JSON.stringify(body), ...extra });
@@ -11,6 +13,8 @@ async function request(path, body, extra = {}) {
 function notice(text, error = false) { $('notice').textContent = text; $('notice').hidden = !text; $('notice').dataset.error = String(error); }
 let galleryPhotos = [], galleryRanked = false, visiblePhotos = 60;
 function gallery(photos, ranked = false, keepPage = false) {
+  if (searchActive && !ranked) return;
+  if (ranked) photos = visibleMatches(photos,thresholdValue($('threshold').value),$('uncertain').checked);
   if (!keepPage) visiblePhotos = 60;
   galleryPhotos = photos; galleryRanked = ranked;
   $('gallery').replaceChildren();
@@ -22,6 +26,7 @@ function gallery(photos, ranked = false, keepPage = false) {
     const badge = document.createElement('span'); badge.className = 'rank'; badge.textContent = ranked ? `#${index + 1}` : photo.indexed ? 'Ready' : 'Not analyzed'; wrap.append(badge);
     const caption = document.createElement('figcaption'); caption.textContent = photo.name;
     figure.append(wrap, caption);
+    if (ranked) { const score = document.createElement('small'); score.className = 'credit'; score.textContent = `Similarity ${photo.similarity.toFixed(4)}`; score.dataset.similarity = String(photo.similarity); figure.append(score); }
     if (photo.verification) {
       const details = document.createElement('details'); details.className = 'details';
       const summary = document.createElement('summary');
@@ -52,10 +57,10 @@ async function refresh() {
   $('calls').textContent = `${state.model} · ${state.dimensions.toLocaleString()} dimensions · Requests this session: ${state.imageCalls} image / ${state.queryCalls} search / ${state.verificationCalls} visual check / ${state.contextCalls} context`;
   if (state.error && state.error !== lastError) notice(state.error, true); lastError = state.error;
   const next = JSON.stringify(state.photos);
-  if (!showingResults && next !== signature) { gallery(state.photos,false,true); signature = next; }
-  if (!showingResults) $('results-subtitle').textContent = `${state.total} saved photos · ${state.indexed} searchable`;
+  if (!searchActive && next !== signature) { gallery(state.photos,false,true); signature = next; }
+  if (!searchActive) $('results-subtitle').textContent = `${state.total} saved photos · ${state.indexed} searchable`;
 }
-$('key-form').onsubmit = async e => { e.preventDefault(); $('connect').disabled = true; try { await request('/connect', { key: $('key').value, provider: $('provider').value }); $('key').value = ''; showingResults = false; signature = ''; $('results-title').textContent = 'Your collection'; $('requirements').hidden = true; notice('Key loaded. Analyze your photos to make them searchable.'); await refresh(); $('key-panel').open = false; } catch(e) { notice(e.message,true); } finally { $('connect').disabled = false; } };
+$('key-form').onsubmit = async e => { e.preventDefault(); $('connect').disabled = true; try { await request('/connect', { key: $('key').value, provider: $('provider').value }); $('key').value = ''; if (searchActive) emptySearch('Run your search again with the connected provider.'); if (!searchActive) { showingResults = false; signature = ''; $('results-title').textContent = 'Your collection'; } $('requirements').hidden = true; notice('Key loaded. Analyze your photos to make them searchable.'); await refresh(); $('key-panel').open = false; } catch(e) { notice(e.message,true); } finally { $('connect').disabled = false; } };
 $('disconnect').onclick = async () => { try { await request('/disconnect',{}); await refresh(); $('key-panel').open = true; notice('Key forgotten. Saved photos and embeddings are still here.'); } catch(e) { notice(e.message,true); } };
 $('index').onclick = async () => { $('index').disabled = true; try { await request('/index',{}); notice('Analyzing images with the selected provider. Completed photos are saved as we go.'); await refresh(); } catch(e) { notice(e.message,true); } };
 $('pause').onclick = async () => { try { await request('/pause',{}); notice('Pausing after the current photo finishes.'); } catch(e) { notice(e.message,true); } };
@@ -64,17 +69,26 @@ try { $('threshold').value = thresholdValue(localStorage.getItem('captured-thres
 function renderMatches() {
   const threshold = thresholdValue($('threshold').value);
   $('threshold-value').textContent = threshold.toFixed(2);
+  $('threshold').disabled = !lastSearch || !showingResults;
+  $('threshold-reset').disabled = !lastSearch || !showingResults;
+  $('threshold-help').textContent = lastSearch && showingResults ? 'Only photos above this similarity are shown. Adjusting it makes no model calls.' : 'Search to filter photos by similarity. Browse collection shows all photos without a similarity filter.';
   if (!lastSearch || !showingResults) return;
   const filtered = visibleMatches(lastSearch.results,threshold,$('uncertain').checked);
   gallery(filtered,true);
   $('results-subtitle').textContent = lastSearch.verified
     ? `${filtered.length} shown · ${lastSearch.checked} of ${lastSearch.totalCandidates} candidates visually checked. Other matches may exist.`
-    : `${filtered.length} matches · ${lastSearch.results.length-filtered.length} below the similarity cutoff`;
+    : `${filtered.length} matches · ${lastSearch.results.length-filtered.length} at or below the similarity cutoff`;
 }
 $('threshold').oninput = () => { try {localStorage.setItem('captured-threshold',$('threshold').value);} catch {} renderMatches(); };
 $('threshold-reset').onclick = () => { $('threshold').value = 0.5; $('threshold').oninput(); };
 $('uncertain').onchange = renderMatches;
 renderMatches();
+function emptySearch(message) {
+  lastSearch = null; showingResults = true; $('requirements').hidden = true; $('context-used').hidden = true;
+  gallery([],true); $('gallery').querySelector('.empty').textContent = message;
+  $('results-title').textContent = 'Search results'; $('results-subtitle').textContent = ''; renderMatches();
+}
+if (searchActive) emptySearch('Run your search again to load matching photos, or choose Browse collection.');
 function cancelClarification() { pendingSearch = null; $('clarification').hidden = true; }
 function showQuestion(question) {
   $('clarification').hidden = false;
@@ -101,10 +115,14 @@ function showQuestion(question) {
 }
 async function runSearch(payload) {
   if (searching) return;
+  const sequence = ++searchSequence; searchActive = true;
+  try { sessionStorage.setItem('captured-active-query',payload.query); } catch {}
+  emptySearch('Searching… Photos will appear here only after they pass your cutoff.');
   searching = true; $('search').disabled = true; $('search').textContent = 'Searching…'; $('clarification').hidden = true;
   try {
     const result = await request('/search',payload);
-    if (result.needsClarification) { pendingSearch = payload; showQuestion(result.questions[0]); notice('A little context is needed before this search can continue.'); return; }
+    if (sequence !== searchSequence) return;
+    if (result.needsClarification) { emptySearch('Answer the context question to continue. No matches are shown yet.'); pendingSearch = payload; showQuestion(result.questions[0]); notice('A little context is needed before this search can continue.'); return; }
     cancelClarification(); lastSearch = result; showingResults = true;
     $('results-title').textContent = result.verified ? 'Checked matches' : 'Matching photos';
     $('requirements').hidden = !result.verified;
@@ -113,13 +131,13 @@ async function runSearch(payload) {
     $('context-used').textContent = result.contextUsed?.length ? 'Using reference context (similarity to query or reference photos): '+result.contextUsed.map(m=>`${m.name}${m.qualifier ? ' ('+m.qualifier+')' : ''}`).join(', ') : '';
     renderMatches();
     notice(result.verified ? 'Showing matches above your cutoff. You can include uncertain assessments; failed checks stay hidden. Personal reference similarity helps select candidates, but does not establish identity.' : 'Showing photos above your similarity cutoff. Broaden the slider to see more.');
-  } catch(e) { notice(e.message,true); if (pendingSearch) $('clarification').hidden = false; }
+  } catch(e) { if (sequence === searchSequence) { emptySearch('Search did not finish. Try again; no unfiltered photos are shown.'); notice(e.message,true); if (pendingSearch) $('clarification').hidden = false; } }
   finally { searching = false; $('search').textContent = 'Search'; await refresh().catch(e=>notice(e.message,true)); }
 }
 $('search-form').onsubmit = e => { e.preventDefault(); if ($('search').disabled) return; cancelClarification(); $('memory-form').hidden = true; runSearch({query:$('prompt').value,verify:$('verify').checked,context:$('use-context').checked,bindings:{}}); };
 $('skip-context').onclick = () => { if (!pendingSearch) return; const payload = {...pendingSearch,context:false,bindings:{}}; cancelClarification(); runSearch(payload); };
-$('cancel-context').onclick = () => { cancelClarification(); $('memory-form').hidden = true; notice('Search canceled.'); };
-$('reset').onclick = () => { cancelClarification(); lastSearch = null; $('context-used').hidden = true; showingResults = false; signature = ''; $('results-title').textContent = 'Your collection'; $('prompt').value = ''; $('requirements').hidden = true; notice(''); refresh().catch(e=>notice(e.message,true)); };
+$('cancel-context').onclick = () => { cancelClarification(); emptySearch('Search canceled. Search again or choose Browse collection.'); $('memory-form').hidden = true; notice('Search canceled.'); };
+$('reset').onclick = () => { searchSequence++; searchActive = false; try {sessionStorage.removeItem('captured-active-query');} catch {} cancelClarification(); lastSearch = null; $('context-used').hidden = true; if (!searchActive) { showingResults = false; signature = ''; $('results-title').textContent = 'Your collection'; } $('prompt').value = ''; $('requirements').hidden = true; renderMatches(); notice(''); refresh().catch(e=>notice(e.message,true)); };
 async function upload(files) {
   if (uploading || state?.indexing || state?.searching) { notice('Wait for the current operation to finish.',true); return; }
   uploading = true; await refresh(); let added = 0, duplicates = 0; const failures = [];
@@ -130,7 +148,7 @@ async function upload(files) {
       try { const response = await fetch('/upload',{method:'POST',headers:{'content-type':'application/octet-stream','x-playground-session':token,'x-file-name':encodeURIComponent(file.name)},body:file}); const result = await response.json(); if (!response.ok) throw new Error(result.message); result.duplicate ? duplicates++ : added++; }
       catch(e) { failures.push(`${file.name}: ${e.message}`); }
     }
-    showingResults = false; signature = ''; $('results-title').textContent = 'Your collection';
+    if (!searchActive) { showingResults = false; signature = ''; $('results-title').textContent = 'Your collection'; }
     notice(failures.length ? failures.join(' • ') : `${added} photos saved${duplicates ? `; ${duplicates} duplicates skipped` : ''}. ${state.configured ? 'Click Analyze photos to index them.' : 'Add your provider key when you’re ready to analyze them.'}`,!!failures.length);
   } finally { uploading = false; $('files').value = ''; $('upload-status').textContent = `${added} saved · ${duplicates} duplicates · ${failures.length} failed`; await refresh(); }
 }
@@ -145,7 +163,7 @@ $('scan').onclick = async () => {
   $('scan').disabled = true;
   try {
     const result = await request('/scan',{});
-    showingResults = false; signature = ''; $('results-title').textContent = 'Your collection';
+    if (!searchActive) { showingResults = false; signature = ''; $('results-title').textContent = 'Your collection'; }
     notice(`${result.added} new photos imported from sample-dataset.${result.skipped.length ? ` ${result.skipped.length} files skipped (unreadable or collection limit).` : ''}`,!!result.skipped.length);
     await refresh();
   } catch(e) { notice(e.message,true); }
@@ -226,7 +244,7 @@ $('memory-form').onsubmit = async e => {
     if (editingMemory) {payload.id = editingMemory.id; payload.revision = editingMemory.revision;}
     const {memory} = await request('/context/save',payload);
     await loadMemories(); $('memory-form').hidden = true;
-    lastSearch = null; showingResults = false; signature = ''; $('context-used').hidden = true; $('requirements').hidden = true; $('results-title').textContent = 'Your collection';
+    if (searchActive) emptySearch('Context changed. Search again to refresh your matches.'); else signature = '';
     if (pendingSearch) {
       if (editingTerm) pendingSearch.bindings[editingTerm] = memory.id;
       await runSearch(pendingSearch);
@@ -239,7 +257,7 @@ $('delete-memory').onclick = async () => {
   if ($('delete-memory').textContent !== 'Confirm delete') { $('delete-memory').textContent = 'Confirm delete'; return; }
   try {
     await request('/context/delete',{id:editingMemory.id,revision:editingMemory.revision});
-    $('memory-form').hidden = true; cancelClarification(); lastSearch = null; showingResults = false; signature = ''; $('context-used').hidden = true; $('requirements').hidden = true; $('results-title').textContent = 'Your collection';
+    $('memory-form').hidden = true; cancelClarification(); if (searchActive) emptySearch('Context changed. Search again to refresh your matches.'); else signature = '';
     await loadMemories(); await refresh(); notice('Memory deleted. Photos and their embeddings remain saved.');
   } catch(e) { $('context-error').textContent = e.message; }
 };
