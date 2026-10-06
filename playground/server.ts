@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import { CONFIG, geminiProvider, qwenProvider, vector, validateVerification, type Provider, type ProviderName } from './providers.js';
 export { geminiProvider } from './providers.js';
 import sharp from 'sharp';
+import { openContext, PlanSchema, resolveContext, type Plan } from './context.js';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename, readdir, stat } from 'node:fs/promises';
 import { resolve, relative } from 'node:path';
@@ -75,6 +76,10 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
     return { added, skipped };
   }
   const initialScan = await scanFolders();
+  const contextStore = openContext(resolve(datasetDir,'.context.sqlite'));
+  const plans = new Map<string,Plan>();
+  const resolvedQueries = new Map<string,string>();
+  let contextCalls = 0;
   const server = Fastify({ logger: false, bodyLimit: 25 * 1024 * 1024 });
   server.addContentTypeParser('application/octet-stream', { parseAs: 'buffer' }, (_, body, done) => done(null, body));
   const session = randomBytes(32).toString('hex');
@@ -101,12 +106,25 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
   server.setErrorHandler((e, _, reply) => reply.code((e as { statusCode?: number }).statusCode === 413 ? 413 : 400).send({ message: (e as { statusCode?: number }).statusCode === 413 ? 'Choose photos smaller than 25 MB each.' : 'Could not process that request. Check the input and try again.' }));
   server.get('/', async (_, reply) => reply.type('text/html').send((await readFile(resolve(directory, 'index.html'), 'utf8')).replace('__SESSION__', session)));
   server.get('/app.js', async (_, reply) => reply.type('text/javascript').send(await readFile(resolve(directory, 'app.js'), 'utf8')));
+  server.get('/search-utils.js', async (_, reply) => reply.type('text/javascript').send(await readFile(resolve(directory, 'search-utils.js'), 'utf8')));
+  server.get('/context', async () => ({memories:contextStore.list()}));
+  server.post('/context/save', async (req,reply) => {
+    if (searching) return reply.code(409).send({message:'Wait for this search to finish.'});
+    try { const memory = contextStore.save(req.body,new Set(photos.map(p=>p.id))); verifiedQueries.clear(); resolvedQueries.clear(); return {memory}; }
+    catch(e) { return reply.code(400).send({message:e instanceof z.ZodError ? e.issues.map(i=>i.message).join(' ') : (e as Error).message}); }
+  });
+  server.post('/context/delete', async (req,reply) => {
+    if (searching) return reply.code(409).send({message:'Wait for this search to finish.'});
+    const {id,revision} = z.object({id:z.string().uuid(),revision:z.number().int().positive()}).parse(req.body);
+    try { contextStore.remove(id,revision); verifiedQueries.clear(); resolvedQueries.clear(); return {deleted:true}; }
+    catch(e) { return reply.code(409).send({message:(e as Error).message}); }
+  });
   server.get('/photos/:id', async (req, reply) => {
     const photo = photos.find(p => p.id === (req.params as any).id);
     if (!photo) return reply.code(404).send({ message: 'Photo not found.' });
     return reply.type('image/jpeg').send(await readFile(resolve(datasetDir, `${photo.id}.jpg`)));
   });
-  server.get('/state', async () => ({ photos: photos.map(expose), datasetDir, configured: !!provider, indexing: !!task, searching, indexed: photos.filter(p => embeddingFor(p)).length, total: photos.length, current, error, imageCalls, queryCalls, dimensions: CONFIG[selected].dimensions, model: CONFIG[selected].model, provider: selected, providerLabel: CONFIG[selected].label, verificationModel: CONFIG[selected].vision, verificationCalls }));
+  server.get('/state', async () => ({ photos: photos.map(expose), datasetDir, configured: !!provider, indexing: !!task, searching, indexed: photos.filter(p => embeddingFor(p)).length, total: photos.length, current, error, imageCalls, queryCalls, dimensions: CONFIG[selected].dimensions, model: CONFIG[selected].model, provider: selected, providerLabel: CONFIG[selected].label, verificationModel: CONFIG[selected].vision, verificationCalls, contextCalls }));
   server.post('/scan', async (_, reply) => {
     if (task || uploading || searching || scanning) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
     scanning = true;
@@ -135,12 +153,12 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
     if (task || searching) return reply.code(409).send({ message: 'Wait for the current model request to finish.' });
     const { key, provider: name } = z.object({ key: z.string().trim().min(20).max(8192), provider: z.enum(['gemini','qwen']).default('gemini') }).parse(req.body);
     if (/\s/.test(key)) return reply.code(400).send({ message: 'Paste only the API key.' });
-    provider = options.providerFactory ? options.providerFactory(key,name) : name === 'qwen' ? qwenProvider(key) : geminiProvider(key); selected = name; queries.clear(); verifiedQueries.clear(); error = '';
+    provider = options.providerFactory ? options.providerFactory(key,name) : name === 'qwen' ? qwenProvider(key) : geminiProvider(key); selected = name; plans.clear(); resolvedQueries.clear(); queries.clear(); verifiedQueries.clear(); error = '';
     return { configured: true };
   });
   server.post('/disconnect', async (_, reply) => {
     if (task || searching) return reply.code(409).send({ message: 'Pause indexing and wait for Gemini to finish.' });
-    provider = null; queries.clear(); verifiedQueries.clear(); return { configured: false };
+    provider = null; plans.clear(); resolvedQueries.clear(); queries.clear(); verifiedQueries.clear(); return { configured: false };
   });
   server.post('/index', async (_, reply) => {
     if (!provider) return reply.code(503).send({ message: 'Add a provider API key first.' });
@@ -168,25 +186,58 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
   server.post('/search', async (req, reply) => {
     if (!provider) return reply.code(503).send({ message: 'Add a provider API key first.' });
     if (task || searching) return reply.code(409).send({ message: 'Wait for the current model request to finish.' });
-    const { query, verify } = z.object({ query: z.string().trim().min(1).max(1000), verify: z.boolean().default(false) }).parse(req.body);
+    const { query, verify, context: useContext, bindings } = z.object({ query: z.string().trim().min(1).max(1000), verify: z.boolean().default(false), context:z.boolean().default(false), bindings:z.record(z.string().max(100),z.string().uuid()).default({}) }).parse(req.body);
     const indexed = photos.filter(p => embeddingFor(p));
     if (!indexed.length) return reply.code(400).send({ message: 'Analyze your photos first.' });
     searching = true;
     try {
-      const cached = queries.has(query);
-      let embedding = queries.get(query);
-      if (!embedding) { queryCalls++; embedding = vector(await provider.text(query),CONFIG[selected].dimensions); if (queries.size >= 100) queries.delete(queries.keys().next().value!); queries.set(query, embedding); }
+      let plan:Plan = {visualQuery:query,references:[]};
+      if (useContext) {
+        if (!provider.plan) throw new Error('Context interpretation unavailable');
+        const cachedPlan = plans.get(query);
+        if (cachedPlan) plan = cachedPlan;
+        else { contextCalls++; plan = PlanSchema.parse(await provider.plan(query)); if (plans.size >= 100) plans.delete(plans.keys().next().value!); plans.set(query,plan); }
+      }
+      const resolution = resolveContext(plan,contextStore.list(),bindings);
+      if (resolution.questions.length) return {needsClarification:true,query,questions:resolution.questions};
+      const memories = [...new Map(resolution.resolved.map(r=>[r.memory.id,r.memory])).values()];
+      const contextUsed = resolution.resolved.map(r=>({term:r.term,id:r.memory.id,name:r.memory.name,qualifier:r.memory.qualifier}));
+      let embeddingQuery = query;
+      if (memories.length) {
+        const resolutionKey = JSON.stringify([query,memories]);
+        const prepared = resolvedQueries.get(resolutionKey);
+        if (prepared) embeddingQuery = prepared;
+        else {
+          contextCalls++;
+          embeddingQuery = PlanSchema.parse(await provider.plan!(query,{entities:memories,bindings:contextUsed})).visualQuery;
+          if (resolvedQueries.size >= 100) resolvedQueries.delete(resolvedQueries.keys().next().value!);
+          resolvedQueries.set(resolutionKey,embeddingQuery);
+        }
+      }
+      const cached = queries.has(embeddingQuery);
+      let embedding = queries.get(embeddingQuery);
+      if (!embedding) { queryCalls++; embedding = vector(await provider.text(embeddingQuery),CONFIG[selected].dimensions); if (queries.size >= 100) queries.delete(queries.keys().next().value!); queries.set(embeddingQuery, embedding); }
       const results = indexed.map(p => ({ ...expose(p), similarity: embeddingFor(p)!.reduce((sum,v,i) => sum + v * embedding![i], 0) })).sort((a,b) => b.similarity-a.similarity);
-      if (!verify) return { results, cached, model: CONFIG[selected].model, verified: false };
+      if (!verify && !memories.length) return { results, cached, model: CONFIG[selected].model, verified: false, contextUsed };
       if (!provider.verify) throw new Error('Verification unavailable');
-      const candidates = results.slice(0,12);
-      const verificationKey = JSON.stringify([selected,query,candidates.map(p=>p.id)]);
+      // Combine visual-query retrieval with reference-image retrieval. References broaden
+      // the shortlist, but never establish a match: the original query is checked below.
+      const indexedById = new Map(indexed.map(p=>[p.id,p]));
+      const linked = new Set(memories.flatMap(m=>m.photoIds));
+      const referenceVectors = memories.flatMap(m=>m.photoIds.slice(0,2)).map(id=>indexedById.get(id)).filter((p):p is Photo=>!!p).map(p=>embeddingFor(p)!);
+      const affinity = (id:string) => linked.has(id) ? 1 : Math.max(-1,...referenceVectors.map(v=>embeddingFor(indexedById.get(id)!)!.reduce((sum,x,i)=>sum+x*v[i],0)));
+      const pool = memories.length ? results.map(p=>({...p,similarity:Math.max(p.similarity,affinity(p.id))})).sort((a,b)=>b.similarity-a.similarity) : results;
+      const candidates = pool.slice(0,12);
+      const verificationKey = JSON.stringify([selected,query,candidates.map(p=>p.id),memories]);
       let verification = verifiedQueries.get(verificationKey);
       const verificationCached = !!verification;
       if (!verification) {
         const images = await Promise.all(candidates.map(async p=>({id:p.id,bytes:await readFile(resolve(datasetDir,`${p.id}.jpg`))})));
         verificationCalls++;
-        verification = validateVerification(await provider.verify(query,images),candidates.map(p=>p.id));
+        const references = [];
+        for (const m of memories) for (const id of m.photoIds.slice(0,2)) references.push({label:JSON.stringify({entityId:m.id,name:m.name,qualifier:m.qualifier}),bytes:await readFile(resolve(datasetDir,`${id}.jpg`))});
+        const facts = {entities:memories,bindings:contextUsed,candidates:candidates.map(p=>({id:p.id,confirmedEntityIds:memories.filter(m=>m.photoIds.includes(p.id)).map(m=>m.id)}))};
+        verification = validateVerification(await provider.verify(query,images,memories.length ? {facts,references} : undefined),candidates.map(p=>p.id));
         if (verifiedQueries.size >= 50) verifiedQueries.delete(verifiedQueries.keys().next().value!);
         verifiedQueries.set(verificationKey,verification);
       }
@@ -194,12 +245,12 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
       const checked = candidates.map(p=>({ ...p, verification: verification!.results.find(r=>r.id===p.id)! }))
         .sort((a,b)=>priorities[a.verification.verdict as keyof typeof priorities]-priorities[b.verification.verdict as keyof typeof priorities] || b.similarity-a.similarity);
       return { results: checked, cached, model: CONFIG[selected].model, verified:true, verificationCached, verificationModel: CONFIG[selected].vision,
-        requirements:verification.requirements, checked:candidates.length, totalCandidates:results.length };
+        contextUsed, requirements:verification.requirements, checked:candidates.length, totalCandidates:results.length };
 
     } catch (e) { return reply.code(502).send({ message: providerError(e) }); }
     finally { searching = false; }
   });
-  server.addHook('onClose', async () => { pause = true; if (task) await task; provider = null; });
+  server.addHook('onClose', async () => { pause = true; if (task) await task; provider = null; contextStore.close(); });
   return server;
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
