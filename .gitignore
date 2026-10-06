@@ -17,3 +17,5 @@ sample-dataset/*
 playground/preview*.png
 
 !sample-dataset/coco128/
+
+__pycache__/
