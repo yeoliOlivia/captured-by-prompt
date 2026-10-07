@@ -1,8 +1,9 @@
+import { COLLECTION_LIMIT as PHOTO_LIMIT } from '@captured/core/current';
 import * as ImagePicker from 'expo-image-picker';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { Directory, File, Paths } from 'expo-file-system';
 import * as Crypto from 'expo-crypto';
-import { PHOTO_LIMIT, assertCapacity, exifDate, type Photo } from '@captured/core';
+import { exifDate, type Photo } from '@captured/core';
 import { store } from './store';
 
 function directory() {
@@ -14,7 +15,7 @@ function directory() {
 export async function selectPhotos(): Promise<number> {
   const existing = await store.list();
   const remaining = PHOTO_LIMIT - existing.length;
-  if (remaining <= 0) throw new Error('Your 30-photo collection is full. Remove a photo to add another.');
+  if (remaining <= 0) throw new Error('Your collection is full. Remove a photo to add another.');
   // PHPicker grants access only to explicitly selected images; no broad library permission is requested.
   const picked = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: ['images'], allowsMultipleSelection: true, selectionLimit: remaining,
@@ -28,7 +29,7 @@ export async function selectPhotos(): Promise<number> {
     known.add(a.assetId);
     return true;
   });
-  assertCapacity(existing.length, assets.length);
+  if (existing.length + assets.length > PHOTO_LIMIT) throw new Error('Too many photos selected.');
   const imported: Photo[] = [];
   try {
     for (const asset of assets) {

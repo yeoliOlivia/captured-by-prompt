@@ -17,7 +17,7 @@
     "plugins": [
       "expo-router", "expo-sqlite", "expo-secure-store",
       ["expo-image-picker", {
-        "photosPermission": "Select up to 30 photos to search. Your entire library is not scanned.",
+        "photosPermission": "Choose photos to search with your connected workspace. Your entire library is not scanned.",
         "cameraPermission": false,
         "microphonePermission": false
       }]

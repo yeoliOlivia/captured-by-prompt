@@ -10,6 +10,7 @@
   "dependencies": {
     "@captured/core": "*",
     "@expo/vector-icons": "^15.1.1",
+    "@react-native-community/slider": "5.2.0",
     "@types/react": "~19.2.0",
     "expo": "57.0.24",
     "expo-constants": "~57.0.19",
@@ -23,8 +24,8 @@
     "expo-secure-store": "~57.0.4",
     "expo-sqlite": "~57.0.3",
     "expo-status-bar": "~57.0.1",
-    "react": "^19.2.3",
-    "react-native": "^0.86.3",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
     "react-native-gesture-handler": "~2.32.0",
     "react-native-reanimated": "^4.5.1",
     "react-native-safe-area-context": "~5.7.0",

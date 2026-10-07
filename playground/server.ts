@@ -3,13 +3,13 @@ import { CONFIG, geminiProvider, qwenProvider, vector, validateVerification, typ
 export { geminiProvider } from './providers.js';
 import sharp from 'sharp';
 import { openContext, PlanSchema, resolveContext, type Plan } from './context.js';
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename, readdir, stat } from 'node:fs/promises';
 import { resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 const directory = fileURLToPath(new URL('.', import.meta.url));
-const PHOTO_LIMIT = 10000;
+import { COLLECTION_LIMIT as PHOTO_LIMIT, PhotoScope } from '@captured/core/current';
 type Photo = { id: string; name: string; embedding?: number[]; model?: string; embeddings?: Record<string,number[]>; source?: { path: string; size: number; mtimeMs: number } };
 function providerError(e: unknown) {
   const status = Number((e as any)?.status ?? (e as any)?.statusCode);
@@ -17,9 +17,14 @@ function providerError(e: unknown) {
   if (status === 400 || status === 401 || status === 403) return 'Provider rejected the request. Check the API key, region, and model access.';
   return 'The model could not complete the request. Your photos and completed embeddings are saved. Try again.';
 }
-export async function createPlaygroundServer(options: { datasetDir?: string; providerFactory?: (key: string, name: ProviderName) => Provider } = {}) {
+export async function createPlaygroundServer(options: { datasetDir?: string; mobileToken?: string; providerFactory?: (key: string, name: ProviderName) => Provider } = {}) {
   const datasetDir = options.datasetDir ?? resolve(directory, '../sample-dataset');
   await mkdir(datasetDir, { recursive: true });
+  if (options.mobileToken && (options.mobileToken.length < 32 || /\s/.test(options.mobileToken))) throw new Error('Mobile access requires a token of at least 32 characters with no whitespace.');
+  const identityFile = resolve(datasetDir, '.dataset-id');
+  try { await writeFile(identityFile, randomUUID(), {flag:'wx', mode:0o600}); }
+  catch (e) { if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e; }
+  const datasetId = z.string().uuid().parse((await readFile(identityFile,'utf8')).trim());
   const photos: Photo[] = [];
   let selected: ProviderName = 'gemini';
   const cacheKey = (name: ProviderName) => `${CONFIG[name].model}:${CONFIG[name].dimensions}`;
@@ -93,10 +98,15 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
   const expose = (p: Photo) => ({ id: p.id, name: p.name, image: `/photos/${p.id}`, indexed: !!embeddingFor(p) });
   server.addHook('onRequest', async (request, reply) => {
     const host = request.headers.host ?? '';
-    if (!/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host)) return reply.code(403).send({ message: 'Open this page on localhost.' });
+    const local = /^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host) && ['127.0.0.1','::1','::ffff:127.0.0.1'].includes(request.ip);
+    const suppliedToken = Buffer.from(String(request.headers.authorization ?? ''));
+    const expectedToken = Buffer.from(`Bearer ${options.mobileToken ?? ''}`);
+    const authenticated = !!options.mobileToken && suppliedToken.length === expectedToken.length && timingSafeEqual(suppliedToken,expectedToken);
+    if ((!local || request.headers.authorization) && !authenticated) return reply.code(401).send({message:'Connect using the workspace token in mobile Settings.'});
+    if (authenticated && request.headers.origin && request.headers.origin !== `http://${host}`) return reply.code(403).send({message:'Cross-origin access is not allowed.'});
     reply.header('Cache-Control', 'no-store').header('Referrer-Policy', 'no-referrer').header('X-Content-Type-Options', 'nosniff');
     reply.header('Content-Security-Policy', "default-src 'self'; img-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
-    if (request.method === 'POST') {
+    if (request.method === 'POST' && !authenticated) {
       if (request.headers.origin && request.headers.origin !== `http://${host}`) return reply.code(403).send({ message: 'Use the local page.' });
       const supplied = Buffer.from(String(request.headers['x-playground-session'] ?? ''));
       const expected = Buffer.from(session);
@@ -106,7 +116,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
   server.setErrorHandler((e, _, reply) => reply.code((e as { statusCode?: number }).statusCode === 413 ? 413 : 400).send({ message: (e as { statusCode?: number }).statusCode === 413 ? 'Choose photos smaller than 25 MB each.' : 'Could not process that request. Check the input and try again.' }));
   server.get('/', async (_, reply) => reply.type('text/html').send((await readFile(resolve(directory, 'index.html'), 'utf8')).replace('__SESSION__', session)));
   server.get('/app.js', async (_, reply) => reply.type('text/javascript').send(await readFile(resolve(directory, 'app.js'), 'utf8')));
-  server.get('/search-utils.js', async (_, reply) => reply.type('text/javascript').send(await readFile(resolve(directory, 'search-utils.js'), 'utf8')));
+  server.get('/search-utils.js', async (_, reply) => reply.type('text/javascript').send(await readFile(resolve(directory, '../packages/core/src/strictness.js'), 'utf8')));
   server.get('/context', async () => ({memories:contextStore.list()}));
   server.post('/context/save', async (req,reply) => {
     if (searching) return reply.code(409).send({message:'Wait for this search to finish.'});
@@ -124,7 +134,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
     if (!photo) return reply.code(404).send({ message: 'Photo not found.' });
     return reply.type('image/jpeg').send(await readFile(resolve(datasetDir, `${photo.id}.jpg`)));
   });
-  server.get('/state', async () => ({ photos: photos.map(expose), datasetDir, configured: !!provider, indexing: !!task, searching, indexed: photos.filter(p => embeddingFor(p)).length, total: photos.length, current, error, imageCalls, queryCalls, dimensions: CONFIG[selected].dimensions, model: CONFIG[selected].model, provider: selected, providerLabel: CONFIG[selected].label, verificationModel: CONFIG[selected].vision, verificationCalls, contextCalls }));
+  server.get('/state', async () => ({ protocol: 'captured-v2', datasetId, photos: photos.map(expose), datasetDir, configured: !!provider, indexing: !!task, searching, indexed: photos.filter(p => embeddingFor(p)).length, total: photos.length, current, error, imageCalls, queryCalls, dimensions: CONFIG[selected].dimensions, model: CONFIG[selected].model, provider: selected, providerLabel: CONFIG[selected].label, verificationModel: CONFIG[selected].vision, verificationCalls, contextCalls }));
   server.post('/scan', async (_, reply) => {
     if (task || uploading || searching || scanning) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
     scanning = true;
@@ -160,14 +170,17 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
     if (task || searching) return reply.code(409).send({ message: 'Pause indexing and wait for Gemini to finish.' });
     provider = null; plans.clear(); resolvedQueries.clear(); queries.clear(); verifiedQueries.clear(); return { configured: false };
   });
-  server.post('/index', async (_, reply) => {
+  server.post('/index', async (req, reply) => {
     if (!provider) return reply.code(503).send({ message: 'Add a provider API key first.' });
     if (searching || uploading || scanning) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
-    if (task || photos.every(p => embeddingFor(p))) return { indexing: !!task };
+    const {photoIds} = z.object({photoIds:PhotoScope.optional()}).parse(req.body ?? {});
+    const scope = photoIds ? new Set(photoIds) : null;
+    const pending = photos.filter(p => (!scope || scope.has(p.id)) && !embeddingFor(p));
+    if (task || !pending.length) return { indexing: !!task };
     error = ''; pause = false;
     task = (async () => {
       try {
-        for (const p of photos.filter(p => !embeddingFor(p))) {
+        for (const p of pending) {
           if (pause) break;
           current = p.name;
           const bytes = await readFile(resolve(datasetDir, `${p.id}.jpg`));
@@ -186,8 +199,9 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
   server.post('/search', async (req, reply) => {
     if (!provider) return reply.code(503).send({ message: 'Add a provider API key first.' });
     if (task || searching) return reply.code(409).send({ message: 'Wait for the current model request to finish.' });
-    const { query, verify, context: useContext, bindings } = z.object({ query: z.string().trim().min(1).max(1000), verify: z.boolean().default(false), context:z.boolean().default(false), bindings:z.record(z.string().max(100),z.string().uuid()).default({}) }).parse(req.body);
-    const indexed = photos.filter(p => embeddingFor(p));
+    const { query, verify, context: useContext, bindings, photoIds } = z.object({ photoIds: PhotoScope.optional(), query: z.string().trim().min(1).max(1000), verify: z.boolean().default(false), context:z.boolean().default(false), bindings:z.record(z.string().max(100),z.string().uuid()).default({}) }).parse(req.body);
+    const scope = photoIds ? new Set(photoIds) : null;
+    const indexed = photos.filter(p => embeddingFor(p) && (!scope || scope.has(p.id)));
     if (!indexed.length) return reply.code(400).send({ message: 'Analyze your photos first.' });
     searching = true;
     try {
@@ -224,7 +238,8 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
       // the shortlist, but never establish a match: the original query is checked below.
       const indexedById = new Map(indexed.map(p=>[p.id,p]));
       const linked = new Set(memories.flatMap(m=>m.photoIds));
-      const referenceVectors = memories.flatMap(m=>m.photoIds.slice(0,2)).map(id=>indexedById.get(id)).filter((p):p is Photo=>!!p).map(p=>embeddingFor(p)!);
+      const referencePhotos = new Map(photos.filter(p=>embeddingFor(p)).map(p=>[p.id,p]));
+      const referenceVectors = memories.flatMap(m=>m.photoIds.slice(0,2)).map(id=>referencePhotos.get(id)).filter((p):p is Photo=>!!p).map(p=>embeddingFor(p)!);
       const affinity = (id:string) => linked.has(id) ? 1 : Math.max(-1,...referenceVectors.map(v=>embeddingFor(indexedById.get(id)!)!.reduce((sum,x,i)=>sum+x*v[i],0)));
       const pool = memories.length ? results.map(p=>({...p,similarity:Math.max(p.similarity,affinity(p.id))})).sort((a,b)=>b.similarity-a.similarity) : results;
       const candidates = pool.slice(0,12);

@@ -8,7 +8,7 @@ describe('selection and requests', () => {
   it('allows 30 and rejects the 31st photo', () => { expect(() => assertCapacity(29, 1)).not.toThrow(); expect(() => assertCapacity(30, 1)).toThrow(); });
   it('requires the current consent version', () => { expect(AnalysisRequestSchema.safeParse({ imageBase64: 'a'.repeat(20) }).success).toBe(false); });
   it('bounds history and includes context/date in cache identities', () => {
-    const req = { consentVersion: CONSENT_VERSION, prompt: 'at night', history: ['green booths'], today: '2026-09-22' };
+    const req = { consentVersion: CONSENT_VERSION as typeof CONSENT_VERSION, prompt: 'at night', history: ['green booths'], today: '2026-09-22' };
     expect(QueryRequestSchema.safeParse(req).success).toBe(true);
     expect(queryCacheKey(req)).not.toBe(queryCacheKey({ ...req, history: [] }));
     expect(QueryRequestSchema.safeParse({ ...req, history: Array(9).fill('x') }).success).toBe(false);

@@ -8,6 +8,7 @@ export default function Layout() {
   return <SafeAreaProvider><LibraryProvider><StatusBar style="dark" />
     <Stack screenOptions={{ headerStyle: { backgroundColor: colors.background }, headerTintColor: colors.ink, headerShadowVisible: false }}>
       <Stack.Screen name="index" options={{ headerShown: false }} />
+      <Stack.Screen name="context" options={{ title: 'My context' }} />
       <Stack.Screen name="settings" options={{ title: 'Your workspace', presentation: 'modal' }} />
       <Stack.Screen name="photo/[id]" options={{ title: 'A closer look' }} />
     </Stack>

@@ -1,6 +1,7 @@
+import { COLLECTION_LIMIT } from '@captured/core/current';
 import * as SQLite from 'expo-sqlite';
 import * as SecureStore from 'expo-secure-store';
-import { AnalysisSchema, PreparedQuerySchema, RankResponseSchema, assertCapacity, type Photo, type Analysis, type PreparedQuery, type RankResponse } from '@captured/core';
+import { AnalysisSchema, PreparedQuerySchema, RankResponseSchema, type Photo, type Analysis, type PreparedQuery, type RankResponse } from '@captured/core';
 
 let opening: Promise<SQLite.SQLiteDatabase> | undefined;
 async function db() {
@@ -15,6 +16,7 @@ async function db() {
       );
       CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS searches (key TEXT PRIMARY KEY, query TEXT NOT NULL, ranking TEXT);
+      CREATE TABLE IF NOT EXISTS workspace_photos (localId TEXT NOT NULL, datasetId TEXT NOT NULL, remoteId TEXT NOT NULL, PRIMARY KEY(localId,datasetId));
       UPDATE photos SET status = 'pending' WHERE status = 'indexing';
     `);
     return database;
@@ -27,6 +29,13 @@ function fromRow(row: Row): Photo {
   return { ...row, analysis: result?.success ? result.data : null, status: row.status === 'ready' && !result?.success ? 'pending' : row.status };
 }
 export const store = {
+  async links(datasetId: string): Promise<Record<string,string>> {
+    const rows = await (await db()).getAllAsync<{localId:string;remoteId:string}>('SELECT localId, remoteId FROM workspace_photos WHERE datasetId = ?',datasetId);
+    return Object.fromEntries(rows.map(r=>[r.localId,r.remoteId]));
+  },
+  async link(localId: string, datasetId: string, remoteId: string) {
+    await (await db()).runAsync('INSERT OR REPLACE INTO workspace_photos (localId,datasetId,remoteId) VALUES (?,?,?)',localId,datasetId,remoteId);
+  },
   async list(): Promise<Photo[]> { return (await (await db()).getAllAsync<Row>('SELECT * FROM photos ORDER BY addedAt, id')).map(fromRow); },
   async get(id: string): Promise<Photo | null> {
     const row = await (await db()).getFirstAsync<Row>('SELECT * FROM photos WHERE id = ?', id);
@@ -36,7 +45,7 @@ export const store = {
     const database = await db();
     await database.withExclusiveTransactionAsync(async tx => {
       const count = await tx.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM photos');
-      assertCapacity(count?.count ?? 0, photos.length);
+      if ((count?.count ?? 0) + photos.length > COLLECTION_LIMIT) throw new Error(`Choose no more than ${COLLECTION_LIMIT} photos.`);
       for (const p of photos) await tx.runAsync('INSERT INTO photos (id, assetId, uri, width, height, capturedAt, status, addedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', p.id, p.assetId, p.uri, p.width, p.height, p.capturedAt, p.status, p.addedAt);
       await tx.runAsync('DELETE FROM searches');
     });
@@ -51,11 +60,11 @@ export const store = {
   },
   async remove(id: string) {
     const database = await db();
-    await database.withExclusiveTransactionAsync(async tx => { await tx.runAsync('DELETE FROM photos WHERE id = ?', id); await tx.runAsync('DELETE FROM searches'); });
+    await database.withExclusiveTransactionAsync(async tx => { await tx.runAsync('DELETE FROM workspace_photos WHERE localId = ?', id); await tx.runAsync('DELETE FROM photos WHERE id = ?', id); await tx.runAsync('DELETE FROM searches'); });
   },
   async clear() {
     const database = await db();
-    await database.withExclusiveTransactionAsync(async tx => { await tx.runAsync('DELETE FROM photos'); await tx.runAsync('DELETE FROM searches'); });
+    await database.withExclusiveTransactionAsync(async tx => { await tx.runAsync('DELETE FROM workspace_photos'); await tx.runAsync('DELETE FROM photos'); await tx.runAsync('DELETE FROM searches'); });
   },
   async setting(key: string): Promise<string | null> { return (await (await db()).getFirstAsync<{ value: string }>('SELECT value FROM settings WHERE key = ?', key))?.value ?? null; },
   async setSetting(key: string, value: string) { await (await db()).runAsync('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', key, value); },
