@@ -182,6 +182,7 @@ $('provider').onchange = () => {
 async function loadMemories() {
   const response = await fetch('/context'); if (!response.ok) throw new Error('Could not load personal context.');
   memories = (await response.json()).memories;
+  renderTripChoices();
   $('memory-list').replaceChildren();
   if (!memories.length) { const p = document.createElement('p'); p.textContent = 'No saved context yet. Add it here or when a search asks.'; $('memory-list').append(p); }
   for (const m of memories) {
@@ -204,6 +205,7 @@ function openMemory(memory, question = null) {
   $('memory-start').value = memory?.startDate ?? ''; $('memory-end').value = memory?.endDate ?? '';
   $('memory-me').checked = memory?.isMe ?? question?.term === 'me';
   $('memory-kind').disabled = !!question;
+  renderMemberChoices(memory?.memberIds ?? []);
   $('delete-memory').hidden = !memory;
   $('delete-memory').textContent = 'Delete memory';
   $('save-memory').textContent = pendingSearch ? 'Save and continue search' : 'Save memory';
@@ -240,7 +242,7 @@ $('memory-panel').addEventListener('toggle',()=>{if ($('memory-panel').open) loa
 $('memory-form').onsubmit = async e => {
   e.preventDefault(); $('save-memory').disabled = true; $('context-error').textContent = '';
   try {
-    const payload = {kind:$('memory-kind').value,name:$('memory-name').value,qualifier:$('memory-qualifier').value,aliases:$('memory-aliases').value.split(',').map(s=>s.trim()).filter(Boolean),notes:$('memory-notes').value,photoIds:[...selectedPhotos],isMe:$('memory-me').checked,startDate:$('memory-start').value,endDate:$('memory-end').value};
+    const payload = {memberIds:$('memory-kind').value==='event' ? [...$('memory-members').querySelectorAll('input:checked')].map(i=>i.value) : [],kind:$('memory-kind').value,name:$('memory-name').value,qualifier:$('memory-qualifier').value,aliases:$('memory-aliases').value.split(',').map(s=>s.trim()).filter(Boolean),notes:$('memory-notes').value,photoIds:[...selectedPhotos],isMe:$('memory-me').checked,startDate:$('memory-start').value,endDate:$('memory-end').value};
     if (editingMemory) {payload.id = editingMemory.id; payload.revision = editingMemory.revision;}
     const {memory} = await request('/context/save',payload);
     await loadMemories(); $('memory-form').hidden = true;
@@ -262,3 +264,69 @@ $('delete-memory').onclick = async () => {
   } catch(e) { $('context-error').textContent = e.message; }
 };
 loadMemories().catch(e=>notice(e.message,true));
+
+function renderMemberChoices(selected) {
+  $('memory-members').replaceChildren();
+  const people = memories.filter(m=>m.kind==='person');
+  if (!people.length) { const p = document.createElement('span'); p.textContent = 'No saved people yet.'; $('memory-members').append(p); }
+  for (const person of people) {
+    const label = document.createElement('label'); label.className = 'check';
+    const box = document.createElement('input'); box.type = 'checkbox'; box.value = person.id; box.checked = selected.includes(person.id);
+    const text = document.createElement('span'); text.textContent = `${person.name}${person.qualifier ? ' · '+person.qualifier : ''}${person.isMe ? ' (me)' : ''}`;
+    label.append(box,text); $('memory-members').append(label);
+  }
+  $('memory-members-field').hidden = $('memory-kind').value !== 'event';
+}
+$('memory-kind').addEventListener('change',()=>{ $('memory-members-field').hidden = $('memory-kind').value !== 'event'; });
+
+// Trip photo pooling
+let tripTimer = null;
+function renderTripChoices() {
+  const trips = memories.filter(m=>m.kind==='event' && m.memberIds?.length);
+  const current = $('trip-select').value;
+  $('trip-select').replaceChildren();
+  for (const trip of trips) { const option = document.createElement('option'); option.value = trip.id; option.textContent = `${trip.name}${trip.qualifier ? ' · '+trip.qualifier : ''} (${trip.startDate} to ${trip.endDate})`; $('trip-select').append(option); }
+  if (trips.some(t=>t.id===current)) $('trip-select').value = current;
+  $('trip-tag').disabled = !trips.length;
+  if (!trips.length) { $('trip-summary').textContent = 'No trips with members yet. Add a trip or event with dates and members under My context.'; $('trip-members').replaceChildren(); }
+  else if ($('trip-panel').open) loadTrip().catch(e=>notice(e.message,true));
+}
+async function loadTrip() {
+  const id = $('trip-select').value; if (!id) return;
+  const response = await fetch(`/trips/${id}`); const trip = await response.json();
+  if (!response.ok) throw new Error(trip.message || 'Could not load trip.');
+  const progress = trip.tagging ? ` Checking ${trip.tagging.done} of ${trip.tagging.total}…` : '';
+  $('trip-summary').textContent = `${trip.photos} trip photos from ${trip.contributors.length ? trip.contributors.join(', ') : 'unknown phones'} · ${trip.pending} not yet checked · ${trip.undated} photos in the collection have no capture date.${progress}${trip.error ? ' '+trip.error : ''}`;
+  $('trip-tag').disabled = !!trip.tagging || !trip.pending || !state?.configured;
+  $('trip-tag').textContent = trip.tagging ? 'Checking…' : trip.pending ? `Find people in ${trip.pending} photos (${Math.ceil(trip.pending/12)} requests)` : 'All trip photos checked';
+  clearTimeout(tripTimer); if (trip.tagging) tripTimer = setTimeout(()=>loadTrip().catch(()=>{}),1500);
+  const includeUncertain = $('trip-uncertain').checked;
+  $('trip-members').replaceChildren();
+  for (const member of trip.members) {
+    const section = document.createElement('div'); section.className = 'trip-member';
+    const heading = document.createElement('strong'); heading.textContent = `${member.name}${member.qualifier ? ' · '+member.qualifier : ''}`;
+    const sub = document.createElement('p'); sub.className = 'mode-note'; sub.textContent = `${member.suggested.length} photos from others' phones include them · ${member.uncertain.length} uncertain`;
+    const thumbs = document.createElement('div'); thumbs.className = 'trip-thumbs';
+    for (const photo of [...member.suggested, ...(includeUncertain ? member.uncertain : [])]) {
+      const img = document.createElement('img'); img.src = photo.image; img.loading = 'lazy'; img.alt = photo.name;
+      img.title = `${photo.name}${photo.contributor ? ' · from '+photo.contributor : ''} · ${photo.evidence}`;
+      if (member.uncertain.includes(photo)) img.className = 'uncertain'; thumbs.append(img);
+    }
+    const exportButton = document.createElement('button'); exportButton.type = 'button'; exportButton.className = 'secondary'; exportButton.textContent = `Export for ${member.name}`;
+    exportButton.disabled = !member.suggested.length && !(includeUncertain && member.uncertain.length);
+    exportButton.onclick = async () => {
+      exportButton.disabled = true;
+      try { const result = await request(`/trips/${trip.trip.id}/export`,{memberId:member.id,includeUncertain}); notice(`${result.written} photos written to ${result.folder} (${result.originals} full-size originals, ${result.copies} resized copies). Location data removed. Review them before sending.`); }
+      catch(e) { notice(e.message,true); } finally { exportButton.disabled = false; }
+    };
+    section.append(heading,sub,thumbs,exportButton); $('trip-members').append(section);
+  }
+}
+$('trip-select').onchange = () => loadTrip().catch(e=>notice(e.message,true));
+$('trip-uncertain').onchange = () => loadTrip().catch(e=>notice(e.message,true));
+$('trip-panel').addEventListener('toggle',()=>{ if ($('trip-panel').open) loadMemories().catch(e=>notice(e.message,true)); });
+$('trip-tag').onclick = async () => {
+  $('trip-tag').disabled = true;
+  try { const result = await request(`/trips/${$('trip-select').value}/tag`,{}); if (result.tagging) notice(`Checking ${result.photos} trip photos in ${result.requests} visual requests. Results are saved as they finish.`); await loadTrip(); }
+  catch(e) { notice(e.message,true); $('trip-tag').disabled = false; }
+};

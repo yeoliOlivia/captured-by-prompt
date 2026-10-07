@@ -15,12 +15,18 @@ export const MemoryInput = z.object({
   notes: z.string().trim().max(2000).default(''),
   photoIds: z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(24).default([]),
   isMe: z.boolean().default(false), startDate: day.default(''), endDate: day.default(''),
+  // Trip members: person memories whose photos are pooled for this trip.
+  memberIds: z.array(z.string().uuid()).max(30).default([]),
 }).superRefine((m, ctx) => {
   if (m.kind === 'person' && !m.photoIds.length) ctx.addIssue({code:'custom', message:'Choose at least one reference photo for this person.'});
   if (m.isMe && m.kind !== 'person') ctx.addIssue({code:'custom', message:'Only a person can be me.'});
   if (m.startDate && m.endDate && m.startDate > m.endDate) ctx.addIssue({code:'custom', message:'End date precedes start date.'});
+  if (m.memberIds.length && m.kind !== 'event') ctx.addIssue({code:'custom', message:'Only a trip or event can have members.'});
+  if (m.memberIds.length && (!m.startDate || !m.endDate)) ctx.addIssue({code:'custom', message:'Add start and end dates to pool photos for this trip.'});
 });
 export type Memory = z.infer<typeof MemoryInput> & {id:string;revision:number;createdAt:string;updatedAt:string;source:'user'};
+export type PresenceStatus = 'present'|'absent'|'uncertain';
+export type PhotoTag = {photoId:string;memoryId:string;status:PresenceStatus;evidence:string;model:string;revision:number};
 export const PlanSchema = z.object({
   visualQuery: z.string().trim().min(1).max(1000),
   references: z.array(z.object({term:z.string().trim().min(1).max(100),kind:Kind})).max(8),
@@ -53,8 +59,10 @@ export function resolveContext(plan:Plan, memories:Memory[], bindings:Record<str
 export function openContext(path:string) {
   const db = new DatabaseSync(path);
   chmodSync(path,0o600);
-  db.exec('PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS memories (id TEXT PRIMARY KEY, data TEXT NOT NULL);');
-  const list = ():Memory[] => db.prepare('SELECT data FROM memories ORDER BY rowid').all().map(r=>JSON.parse(String(r.data)));
+  db.exec(`PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS memories (id TEXT PRIMARY KEY, data TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS photo_people (photoId TEXT NOT NULL, memoryId TEXT NOT NULL, model TEXT NOT NULL, revision INTEGER NOT NULL, status TEXT NOT NULL, evidence TEXT NOT NULL, PRIMARY KEY (photoId, memoryId, model));`);
+  // Older records have no memberIds.
+  const list = ():Memory[] => db.prepare('SELECT data FROM memories ORDER BY rowid').all().map(r=>({memberIds:[],...JSON.parse(String(r.data))}));
   return {
     list,
     save(value:unknown, photoIds:Set<string>) {
@@ -64,15 +72,30 @@ export function openContext(path:string) {
       if (input.id && (!old || old.revision !== input.revision)) throw new Error('This memory changed. Reload it before saving.');
       if (!old && all.length >= 500) throw new Error('This prototype supports 500 memories.');
       if (input.isMe && all.some(m=>m.isMe && m.id!==input.id)) throw new Error('Another person is already marked as me. Edit that memory first.');
+      if (input.memberIds.some(id=>!all.some(m=>m.id===id && m.kind==='person'))) throw new Error('Trip members must be saved people.');
       const now = new Date().toISOString();
-      const memory:Memory = {...input, aliases:[...new Set(input.aliases)],photoIds:[...new Set(input.photoIds)],id:old?.id??randomUUID(),revision:(old?.revision??0)+1,createdAt:old?.createdAt??now,updatedAt:now,source:'user'};
+      const memory:Memory = {...input, aliases:[...new Set(input.aliases)],photoIds:[...new Set(input.photoIds)],memberIds:[...new Set(input.memberIds)],id:old?.id??randomUUID(),revision:(old?.revision??0)+1,createdAt:old?.createdAt??now,updatedAt:now,source:'user'};
       db.prepare('INSERT INTO memories VALUES (?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(memory.id,JSON.stringify(memory));
       return memory;
     },
     remove(id:string, revision:number) {
       const old = list().find(m=>m.id===id);
       if (!old || old.revision !== revision) throw new Error('This memory changed. Reload it before deleting.');
+      if (old.kind === 'person' && list().some(m=>m.memberIds.includes(id))) throw new Error('Remove this person from their trips before deleting them.');
       db.prepare('DELETE FROM memories WHERE id=?').run(id);
+      db.prepare('DELETE FROM photo_people WHERE memoryId=?').run(id);
+    },
+    // Cached "who is in this photo" results. A row is current only for the person's current revision,
+    // so editing their reference photos re-checks that person without discarding anyone else.
+    tags(photoIds:string[], model:string):PhotoTag[] {
+      const wanted = new Set(photoIds);
+      return (db.prepare('SELECT photoId, memoryId, model, revision, status, evidence FROM photo_people WHERE model=?').all(model) as unknown as PhotoTag[]).filter(t=>wanted.has(t.photoId));
+    },
+    saveTags(tags:PhotoTag[]) {
+      const insert = db.prepare('INSERT INTO photo_people VALUES (?,?,?,?,?,?) ON CONFLICT(photoId,memoryId,model) DO UPDATE SET revision=excluded.revision, status=excluded.status, evidence=excluded.evidence');
+      db.exec('BEGIN');
+      try { for (const t of tags) insert.run(t.photoId,t.memoryId,t.model,t.revision,t.status,t.evidence); db.exec('COMMIT'); }
+      catch (e) { db.exec('ROLLBACK'); throw e; }
     },
     close:()=>db.close(),
   };
