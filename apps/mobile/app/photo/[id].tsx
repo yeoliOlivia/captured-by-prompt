@@ -24,6 +24,7 @@ export default function PhotoDetail() {
       {!photo.capturedAt && <Text style={s.small}>Capture date was not available from this selection.</Text>}
       {photo.error && <Notice text={photo.error} />}
       <Text style={s.small}>Search uses image pixels, without generated captions. {photo.assetId ? 'The original Photos asset identifier is retained on this phone.' : 'Photos did not provide an original asset identifier for this selection.'}</Text>
+      <Button label="Photos actions" onPress={()=>{library.setSelection([photo]);router.push('/selection');}} disabled={Boolean(library.activity)} />
       <Button label="Remove from collection" secondary icon="trash-outline" onPress={remove} disabled={Boolean(library.activity)} />
     </View>
   </ScrollView>;

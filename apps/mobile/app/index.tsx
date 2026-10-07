@@ -10,7 +10,7 @@ import { colors } from '../src/theme';
 
 export default function Home() {
   const library=useLibrary(), {width}=useWindowDimensions();
-  const [prompt,setPrompt]=useState('');
+  const [prompt,setPrompt]=useState(''),[selecting,setSelecting]=useState(false);
   const busy=!!library.activity, indexed=library.photos.filter(p=>p.indexed).length;
   const photos=library.searchingView ? library.matches : library.photos;
   const size=(width-64)/3;
@@ -48,12 +48,17 @@ export default function Home() {
         </View>}
         {!!library.notice && <Notice text={library.notice}/>}
         <View style={s.sectionRow}><Text style={s.sectionTitle}>{library.searchingView ? `${photos.length} matches` : `${photos.length} selected photos`}</Text><Button label="Add photos" secondary onPress={()=>{void library.add();}} disabled={busy||library.photos.length>=COLLECTION_LIMIT}/></View>
+        <View style={{gap:10}}>
+          <Button label={selecting?'Done selecting':'Select photos'} secondary disabled={busy||!photos.length} onPress={()=>setSelecting(v=>!v)}/>
+          {selecting&&<Button label={library.searchingView?'Select all matches':'Select whole collection'} secondary disabled={busy||!photos.length} onPress={()=>library.setSelection(photos)}/>}
+          {!!library.selection.length&&<Button label={`Review ${library.selection.length} selected`} disabled={busy} onPress={()=>router.push('/selection')}/>}
+        </View>
         <Text style={s.small}>{indexed} searchable{library.workspace ? ` · ${library.workspace.providerLabel} · ${library.workspace.dimensions.toLocaleString()} dimensions` : ''}</Text>
         {library.workspace?.indexing ? <Button label="Pause analysis" secondary onPress={()=>{void library.pause();}} disabled={busy}/> : library.photos.length>0 && <Button label="Analyze selected photos" onPress={()=>{void library.index();}} disabled={busy||!library.consent||!library.workspace} busy={library.activity==='uploading'}/>}
       </View>}
       ListEmptyComponent={<View style={s.empty}><Text style={s.emptyTitle}>{library.searchingView ? 'No matches to show' : 'Start with photos you know.'}</Text><Text style={common.body}>{library.searchingView ? 'Broaden the filter, answer any clarification, or run another search.' : 'Your originals stay in Photos. Only photos you choose are imported.'}</Text></View>}
-      renderItem={({item,index})=><Pressable accessibilityRole="button" accessibilityLabel={`Open photo ${index+1}`} onPress={()=>router.push(`/photo/${item.id}`)} style={[s.tile,{width:size,height:size*1.15}]}>
-        <Image source={{uri:item.uri}} style={StyleSheet.absoluteFill}/><View style={s.tileBadge}><Text style={s.rank}>{library.searchingView ? `#${index+1}` : item.indexed ? 'Ready' : 'Pending'}</Text></View>
+      renderItem={({item,index})=><Pressable accessibilityRole={selecting?'checkbox':'button'} accessibilityState={selecting?{checked:library.selection.some(p=>p.id===item.id)}:undefined} accessibilityLabel={`${selecting?'Select':'Open'} photo ${index+1}`} disabled={busy} onPress={()=>selecting?library.toggleSelection(item):router.push(`/photo/${item.id}`)} style={[s.tile,{width:size,height:size*1.15},library.selection.some(p=>p.id===item.id)&&{borderWidth:3,borderColor:colors.green}]}>
+        <Image source={{uri:item.uri}} style={StyleSheet.absoluteFill}/>{library.selection.some(p=>p.id===item.id)&&<Text style={{position:'absolute',top:5,right:5,backgroundColor:colors.green,color:'white',paddingHorizontal:5,borderRadius:8}}>✓</Text>}<View style={s.tileBadge}><Text style={s.rank}>{library.searchingView ? `#${index+1}` : item.indexed ? 'Ready' : 'Pending'}</Text></View>
       </Pressable>}/>
   </KeyboardAvoidingView></SafeAreaView>;
 }

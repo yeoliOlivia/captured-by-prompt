@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Alert, ScrollView, Text, TextInput } from 'react-native';
+import { Alert, Linking, ScrollView, Text, TextInput } from 'react-native';
 import Constants from 'expo-constants';
+import nativePhotos from '../modules/captured-photos';
 import { store } from '../src/store';
 import { useLibrary } from '../src/library';
 import { Button, Notice, styles } from '../src/components';
@@ -21,6 +22,15 @@ export default function Settings() {
       await store.setSetting('server-url',parsed.origin);await store.setToken(token.trim());await library.connectionChanged();setMessage('Connected to the shared workspace.');
     }catch(e){setMessage(e instanceof Error?e.message:'Could not connect.');}finally{setChecking(false);}
   }
+  async function photosAccess(manage=false){
+    if(!nativePhotos)return;
+    setChecking(true);setMessage('');
+    try {
+      const access=await nativePhotos.requestAccess();
+      if(manage&&access==='limited')await nativePhotos.manageAccess();
+      setMessage(access==='denied'?'Photos access is off. Open iPhone Settings to allow access.':access==='limited'?'Only the Photos items you allow can be changed. Use Manage allowed photos to include selected originals.':'Photos access enabled. Actions apply only to the originals you explicitly select.');
+    }catch(e){setMessage(e instanceof Error?e.message:'Could not update Photos access.');}finally{setChecking(false);}
+  }
   const busy=checking||!!library.activity;
   return <ScrollView style={{backgroundColor:colors.background}} contentContainerStyle={{padding:24,gap:16}} keyboardShouldPersistTaps="handled">
     <Text style={styles.label}>ONE WORKSPACE, PHONE AND BROWSER</Text>
@@ -35,9 +45,14 @@ export default function Settings() {
       <Text style={styles.body}>{library.workspace.providerLabel} · {library.workspace.model} · {library.workspace.dimensions.toLocaleString()} dimensions</Text>
       <Text style={styles.body}>{library.workspace.configured?'Model key loaded.':'Model setup needed.'} Choose Gemini or Qwen and enter its key in the browser on your Mac. The phone uses that same connection.</Text>
     </>}
+    <Text style={styles.label}>Apple Photos actions</Text>
+    <Text style={styles.body}>{nativePhotos?'Select photos in your collection or search results, then review the selection to share, favorite, organize, or delete originals.':'Photos actions require a Captured iOS development build. Expo Go and the browser can run search but do not contain our native Photos module.'}</Text>
+    <Button label="Enable Photos actions" secondary disabled={busy||!nativePhotos} onPress={()=>{void photosAccess();}}/>
+    <Button label="Manage allowed photos" secondary disabled={busy||!nativePhotos} onPress={()=>{void photosAccess(true);}}/>
+    <Button label="Open iPhone app settings" secondary disabled={busy||!nativePhotos} onPress={()=>{void Linking.openSettings().catch(()=>setMessage('Open the Settings app and find Captured.'));}}/>
     <Text style={styles.label}>Your data</Text>
     <Text style={styles.body}>Only chosen photos are imported. Analyze uploads resized previews to the workspace, which stores them and their embeddings. Cloud analysis sends previews, prompts, and relevant saved context to the selected provider. Provider billing and data-use terms apply.</Text>
-    <Text style={styles.body}>Removing a photo here removes this app’s phone copy. Apple Photos originals, workspace copies, and saved context remain. No native favorite, album, sharing, or original-deletion actions are implemented yet.</Text>
+    <Text style={styles.body}>Remove from collection only removes this app’s phone copy. Delete originals from Photos is a separate, confirmed action and also removes the corresponding phone copies after Apple confirms success. Mac workspace copies and saved context remain in either case.</Text>
     <Button label="Turn off cloud analysis" secondary disabled={!library.consent||busy} onPress={()=>{void library.revokeConsent().catch(e=>setMessage(e.message));}}/>
     <Button label="Remove phone collection" secondary disabled={busy||!library.photos.length} onPress={()=>Alert.alert('Remove phone copies?','Your Apple Photos originals and the workspace on your Mac will remain.',[{text:'Cancel',style:'cancel'},{text:'Remove',style:'destructive',onPress:()=>{void library.clear();}}])}/>
     {!!library.notice&&<Notice text={library.notice}/>}

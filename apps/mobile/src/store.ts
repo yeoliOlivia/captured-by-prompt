@@ -62,6 +62,19 @@ export const store = {
     const database = await db();
     await database.withExclusiveTransactionAsync(async tx => { await tx.runAsync('DELETE FROM workspace_photos WHERE localId = ?', id); await tx.runAsync('DELETE FROM photos WHERE id = ?', id); await tx.runAsync('DELETE FROM searches'); });
   },
+  async removeByAssets(assetIds: readonly string[]): Promise<Photo[]> {
+    const database=await db(), wanted=new Set(assetIds);
+    let removed:Photo[]=[];
+    await database.withExclusiveTransactionAsync(async tx=>{
+      removed=(await tx.getAllAsync<Row>('SELECT * FROM photos')).map(fromRow).filter(p=>p.assetId && wanted.has(p.assetId));
+      for(const photo of removed) {
+        await tx.runAsync('DELETE FROM workspace_photos WHERE localId = ?',photo.id);
+        await tx.runAsync('DELETE FROM photos WHERE id = ?',photo.id);
+      }
+      await tx.runAsync('DELETE FROM searches');
+    });
+    return removed;
+  },
   async clear() {
     const database = await db();
     await database.withExclusiveTransactionAsync(async tx => { await tx.runAsync('DELETE FROM workspace_photos'); await tx.runAsync('DELETE FROM photos'); await tx.runAsync('DELETE FROM searches'); });

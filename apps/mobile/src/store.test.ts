@@ -61,6 +61,15 @@ describe('persistent index SQL (real SQLite, Expo bridge substituted)', () => {
     expect(await restarted.links('new-workspace')).toEqual({});
     await restarted.remove('a');expect(await restarted.links('workspace-one')).toEqual({});
   });
+  it('cleans up every local copy of confirmed deleted originals and preserves unrelated photos',async()=>{
+    const {store}=await import('./store');
+    await store.add([photo('a',{assetId:'original'}),photo('duplicate',{assetId:'original'}),photo('keep',{assetId:'other'})]);
+    await store.link('a','workspace','server-a');await store.link('keep','workspace','server-keep');
+    const removed=await store.removeByAssets(['original']);
+    expect(removed.map(p=>p.id).sort()).toEqual(['a','duplicate']);
+    expect((await store.list()).map(p=>p.id)).toEqual(['keep']);
+    expect(await store.links('workspace')).toEqual({keep:'server-keep'});
+  });
   it('clears photos and derived data without deleting connection settings', async () => {
     const { store } = await import('./store');
     await store.setSetting('server-url', 'http://192.168.1.10:8787');

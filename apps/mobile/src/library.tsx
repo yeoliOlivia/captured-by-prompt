@@ -3,6 +3,8 @@ import { AppState } from 'react-native';
 import type { Photo } from '@captured/core';
 import { CLOUD_CONSENT, type WorkspaceState, type SearchResult, type Question, type SavedMemory, type MemoryDraft } from '@captured/core/current';
 import { strictnessValue, visibleMatches } from '@captured/core/strictness';
+import nativePhotos from '../modules/captured-photos';
+import { runPhotoAction, selectionSnapshot, type ActionPhoto, type PhotoAction } from './photo-actions';
 import { store } from './store';
 import { api } from './api';
 import { selectPhotos, previewBase64, deleteLocalPhoto, deleteAllLocalPhotos } from './photos';
@@ -10,6 +12,9 @@ import { selectPhotos, previewBase64, deleteLocalPhoto, deleteAllLocalPhotos } f
 export type MobilePhoto = Photo & {remoteId?:string; indexed:boolean};
 type Activity = 'selecting'|'uploading'|'searching'|'saving'|null;
 interface Library {
+  selection:ActionPhoto[]; photosActionsAvailable:boolean;
+  setSelection(photos:readonly ActionPhoto[]):void; toggleSelection(photo:ActionPhoto):void; clearSelection():void;
+  photosAction(action:PhotoAction,snapshot:readonly ActionPhoto[],albumName?:string):Promise<boolean>;
   ready:boolean; photos:MobilePhoto[]; workspace:WorkspaceState|null; activity:Activity; notice:string; consent:boolean;
   results:SearchResult|null; searchingView:boolean; matches:MobilePhoto[]; query:string; questions:Question[];
   memories:SavedMemory[]; editingQuestion:Question|null; strictness:number; includeUncertain:boolean;
@@ -23,6 +28,7 @@ interface Library {
 }
 const Context = createContext<Library|null>(null);
 export function LibraryProvider({children}:{children:ReactNode}) {
+  const [selection,setSelectionState]=useState<ActionPhoto[]>([]);
   const [local,setLocal] = useState<Photo[]>([]), [links,setLinks] = useState<Record<string,string>>({});
   const [workspace,setWorkspace] = useState<WorkspaceState|null>(null), [ready,setReady] = useState(false);
   const [activity,setActivity] = useState<Activity>(null), [notice,setNotice] = useState(''), [consent,setConsent] = useState(false);
@@ -32,7 +38,7 @@ export function LibraryProvider({children}:{children:ReactNode}) {
   const [strictness,setStrictnessState] = useState(.5), [includeUncertain,setIncludeUncertain] = useState(false);
   const [useContext,setUseContextState] = useState(true), [verify,setVerifyState] = useState(false);
   const busy = useRef(false), refreshVersion = useRef(0), identity = useRef(''), bindings = useRef<Record<string,string>>({});
-  function clearResults() {setResults(null); setQuestions([]); bindings.current={}; setEditingQuestion(null);}
+  function clearResults() {setSelectionState([]);setResults(null); setQuestions([]); bindings.current={}; setEditingQuestion(null);}
   async function refresh() {
     const version = ++refreshVersion.current;
     const currentLocal = await store.list();
@@ -83,7 +89,28 @@ export function LibraryProvider({children}:{children:ReactNode}) {
     if('needsClarification' in result) {setQuestions(result.questions);setNotice('A little context is needed before searching.');}
     else {setResults(result);setNotice(result.verified ? `Showing checked matches from ${result.checked} candidates. Other matches may exist.` : 'Image similarity search. Broaden the slider to see more.');}
   }
-  const value:Library={ready,photos,workspace,activity,notice,consent,results,searchingView,matches,query,questions,memories,editingQuestion,strictness,includeUncertain,useContext,verify,
+  const value:Library={selection,photosActionsAvailable:!!nativePhotos,
+    setSelection(photos){if(!busy.current)setSelectionState(selectionSnapshot(photos));},
+    toggleSelection(photo){if(!busy.current)setSelectionState(selected=>selected.some(p=>p.id===photo.id)?selected.filter(p=>p.id!==photo.id):[...selected,...selectionSnapshot([photo])]);},
+    clearSelection(){if(!busy.current)setSelectionState([]);},
+    async photosAction(action,snapshot,albumName){return perform('saving',async()=>{
+      const result=await runPhotoAction(nativePhotos,action,snapshot,albumName);
+      if(!result.completed){setNotice('Sharing cancelled. Your selection is unchanged.');return;}
+      if(action==='delete') {
+        // PhotoKit has already confirmed deletion. Never run this cleanup before the native result.
+        try {
+          const removed=await store.removeByAssets(result.assetIds);
+          let filesKept=0;
+          for(const photo of removed){try{deleteLocalPhoto(photo);}catch{filesKept++;}}
+          setLocal(await store.list());clearResults();
+          setNotice(`Deleted ${result.assetIds.length} originals from Photos and removed them from this app. Mac workspace copies remain.${filesKept?' Some unused phone copy files could not be cleaned up.':''}`);
+        } catch {setSelectionState([]);setResults(null);setNotice('Originals were deleted from Photos, but app-copy cleanup failed. Remove those phone copies from the collection manually. Mac workspace copies remain.');}
+      } else {
+        const message={favorite:'Added to Favorites',unfavorite:'Removed from Favorites',album:'Saved to album',share:'Sharing finished'}[action];
+        setNotice(`${message} · ${result.assetIds.length} photo${result.assetIds.length===1?'':'s'}.`);
+      }
+    });},
+    ready,photos,workspace,activity,notice,consent,results,searchingView,matches,query,questions,memories,editingQuestion,strictness,includeUncertain,useContext,verify,
     setNotice,setEditingQuestion,setIncludeUncertain,
     setUseContext(v){setUseContextState(v);clearResults();},setVerify(v){setVerifyState(v);clearResults();},
     setStrictness(v){setStrictnessState(strictnessValue(v));void store.setSetting('search-strictness-v1',String(v)).catch(()=>setNotice('Could not save the filter preference.'));},

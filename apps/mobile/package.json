@@ -5,7 +5,8 @@
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start --lan",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "ios": "expo run:ios"
   },
   "dependencies": {
     "@captured/core": "*",
@@ -31,5 +32,10 @@
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
     "react-native-worklets": "^0.10.1"
+  },
+  "expo": {
+    "autolinking": {
+      "nativeModulesDir": "./modules"
+    }
   }
 }
