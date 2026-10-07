@@ -1,4 +1,4 @@
-import { thresholdValue, visibleMatches } from './search-utils.js';
+import { strictnessValue, visibleMatches } from './search-utils.js';
 const $ = id => document.getElementById(id);
 const token = document.querySelector('meta[name="playground-session"]').content;
 let searchActive = false, searchSequence = 0;
@@ -14,7 +14,7 @@ function notice(text, error = false) { $('notice').textContent = text; $('notice
 let galleryPhotos = [], galleryRanked = false, visiblePhotos = 60;
 function gallery(photos, ranked = false, keepPage = false) {
   if (searchActive && !ranked) return;
-  if (ranked) photos = visibleMatches(photos,thresholdValue($('threshold').value),$('uncertain').checked);
+  if (ranked) photos = visibleMatches(photos,strictnessValue($('threshold').value),$('uncertain').checked,lastSearch?.results ?? photos);
   if (!keepPage) visiblePhotos = 60;
   galleryPhotos = photos; galleryRanked = ranked;
   $('gallery').replaceChildren();
@@ -26,7 +26,6 @@ function gallery(photos, ranked = false, keepPage = false) {
     const badge = document.createElement('span'); badge.className = 'rank'; badge.textContent = ranked ? `#${index + 1}` : photo.indexed ? 'Ready' : 'Not analyzed'; wrap.append(badge);
     const caption = document.createElement('figcaption'); caption.textContent = photo.name;
     figure.append(wrap, caption);
-    if (ranked) { const score = document.createElement('small'); score.className = 'credit'; score.textContent = `Similarity ${photo.similarity.toFixed(4)}`; score.dataset.similarity = String(photo.similarity); figure.append(score); }
     if (photo.verification) {
       const details = document.createElement('details'); details.className = 'details';
       const summary = document.createElement('summary');
@@ -65,21 +64,21 @@ $('disconnect').onclick = async () => { try { await request('/disconnect',{}); a
 $('index').onclick = async () => { $('index').disabled = true; try { await request('/index',{}); notice('Analyzing images with the selected provider. Completed photos are saved as we go.'); await refresh(); } catch(e) { notice(e.message,true); } };
 $('pause').onclick = async () => { try { await request('/pause',{}); notice('Pausing after the current photo finishes.'); } catch(e) { notice(e.message,true); } };
 let lastSearch = null, pendingSearch = null, memories = [], editingMemory = null, editingTerm = null, selectedPhotos = new Set(), pickerLimit = 60;
-try { $('threshold').value = thresholdValue(localStorage.getItem('captured-threshold')); } catch {}
+try { $('threshold').value = strictnessValue(localStorage.getItem('captured-search-strictness-v1')); } catch {}
 function renderMatches() {
-  const threshold = thresholdValue($('threshold').value);
-  $('threshold-value').textContent = threshold.toFixed(2);
+  const threshold = strictnessValue($('threshold').value);
+  $('threshold').setAttribute('aria-valuetext',threshold === 0 ? 'Broadest' : threshold === 1 ? 'Strictest' : threshold < 0.5 ? 'Broader matches' : threshold > 0.5 ? 'Stricter matches' : 'Balanced');
   $('threshold').disabled = !lastSearch || !showingResults;
   $('threshold-reset').disabled = !lastSearch || !showingResults;
-  $('threshold-help').textContent = lastSearch && showingResults ? 'Only photos above this similarity are shown. Adjusting it makes no model calls.' : 'Search to filter photos by similarity. Browse collection shows all photos without a similarity filter.';
+  $('threshold-help').textContent = lastSearch && showingResults ? 'Adjusts to this search: broader shows more, stricter keeps the closest matches.' : 'Search to filter photos by similarity. Browse collection shows all photos without a similarity filter.';
   if (!lastSearch || !showingResults) return;
   const filtered = visibleMatches(lastSearch.results,threshold,$('uncertain').checked);
   gallery(filtered,true);
   $('results-subtitle').textContent = lastSearch.verified
     ? `${filtered.length} shown · ${lastSearch.checked} of ${lastSearch.totalCandidates} candidates visually checked. Other matches may exist.`
-    : `${filtered.length} matches · ${lastSearch.results.length-filtered.length} at or below the similarity cutoff`;
+    : `${filtered.length} matches · ${lastSearch.results.length-filtered.length} hidden by the search filter`;
 }
-$('threshold').oninput = () => { try {localStorage.setItem('captured-threshold',$('threshold').value);} catch {} renderMatches(); };
+$('threshold').oninput = () => { try {localStorage.setItem('captured-search-strictness-v1',$('threshold').value);} catch {} renderMatches(); };
 $('threshold-reset').onclick = () => { $('threshold').value = 0.5; $('threshold').oninput(); };
 $('uncertain').onchange = renderMatches;
 renderMatches();
@@ -117,7 +116,7 @@ async function runSearch(payload) {
   if (searching) return;
   const sequence = ++searchSequence; searchActive = true;
   try { sessionStorage.setItem('captured-active-query',payload.query); } catch {}
-  emptySearch('Searching… Photos will appear here only after they pass your cutoff.');
+  emptySearch('Searching… Matching photos will appear here when the search finishes.');
   searching = true; $('search').disabled = true; $('search').textContent = 'Searching…'; $('clarification').hidden = true;
   try {
     const result = await request('/search',payload);
@@ -130,7 +129,7 @@ async function runSearch(payload) {
     $('context-used').hidden = !result.contextUsed?.length;
     $('context-used').textContent = result.contextUsed?.length ? 'Using reference context (similarity to query or reference photos): '+result.contextUsed.map(m=>`${m.name}${m.qualifier ? ' ('+m.qualifier+')' : ''}`).join(', ') : '';
     renderMatches();
-    notice(result.verified ? 'Showing matches above your cutoff. You can include uncertain assessments; failed checks stay hidden. Personal reference similarity helps select candidates, but does not establish identity.' : 'Showing photos above your similarity cutoff. Broaden the slider to see more.');
+    notice(result.verified ? 'Showing matches at your chosen strictness. You can include uncertain assessments; failed checks stay hidden. Personal reference similarity helps select candidates, but does not establish identity.' : 'Showing matches at your chosen strictness. Broaden the slider to see more.');
   } catch(e) { if (sequence === searchSequence) { emptySearch('Search did not finish. Try again; no unfiltered photos are shown.'); notice(e.message,true); if (pendingSearch) $('clarification').hidden = false; } }
   finally { searching = false; $('search').textContent = 'Search'; await refresh().catch(e=>notice(e.message,true)); }
 }

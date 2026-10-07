@@ -5,15 +5,33 @@ import { join } from 'node:path';
 import sharp from 'sharp';
 import { openContext,resolveContext } from './context';
 import { createPlaygroundServer } from './server';
-import { visibleMatches,thresholdValue } from './search-utils.js';
+import { visibleMatches,strictnessValue,BASELINE_SIMILARITY } from './search-utils.js';
 
 describe('personal context and search thresholds',()=>{
-  it('filters absolute scores without inventing confidence or filling empty results',()=>{
-    const photos = [{id:'a',similarity:.8},{id:'b',similarity:.5},{id:'c',similarity:.49},{id:'d',similarity:.9,verification:{verdict:'mismatch'}},{id:'e',similarity:.6,verification:{verdict:'uncertain'}}];
-    expect(visibleMatches(photos,.5).map(p=>p.id)).toEqual(['a']);
-    expect(visibleMatches(photos,.4,true).map(p=>p.id)).toEqual(['a','b','c','e']);
-    expect(visibleMatches(photos,.99)).toEqual([]);
-    expect(thresholdValue('garbage')).toBe(.5);expect(thresholdValue(null)).toBe(.5);expect(thresholdValue('-1')).toBe(-1);
+  it('adapts to narrow score distributions without showing below-baseline photos',()=>{
+    const photos = Array.from({length:100},(_,i)=>({id:String(i),similarity:BASELINE_SIMILARITY+i*0.00009}));
+    const input = [...photos,{id:'negative',similarity:-.1},{id:'zero',similarity:0},{id:'weak',similarity:.0009},{id:'invalid',similarity:NaN}];
+    expect(visibleMatches(input,0)).toHaveLength(100);
+    expect(visibleMatches(input,.5)).toHaveLength(25);
+    expect(visibleMatches(input,1).map(p=>p.id)).toEqual(['99']);
+    let previous = new Set(photos.map(p=>p.id));
+    for (let step=0;step<=100;step++) {
+      const current = visibleMatches(input,step/100);
+      expect(current.every(p=>previous.has(p.id))).toBe(true);
+      previous = new Set(current.map(p=>p.id));
+    }
+    const filtered = visibleMatches(input,.5);
+    expect(visibleMatches(filtered,.5,false,input)).toEqual(filtered);
+    expect(strictnessValue('garbage')).toBe(.5);expect(strictnessValue(null)).toBe(.5);expect(strictnessValue('-1')).toBe(.5);
+  });
+  it('keeps ties together and computes the distribution from eligible visual assessments',()=>{
+    const photos = [{id:'a',similarity:.8},{id:'b',similarity:.8},{id:'c',similarity:.2},{id:'d',similarity:.9,verification:{verdict:'mismatch'}},{id:'e',similarity:.95,verification:{verdict:'uncertain'}}];
+    expect(visibleMatches(photos,1).map(p=>p.id)).toEqual(['a','b']);
+    expect(visibleMatches(photos,1,true).map(p=>p.id)).toEqual(['e']);
+    expect(visibleMatches(photos,0).map(p=>p.id)).toEqual(['a','b','c']);
+    expect(visibleMatches([{similarity:-.1},{similarity:0}],0)).toEqual([]);
+    expect(visibleMatches([],1)).toEqual([]);
+    expect(visibleMatches([{similarity:.001}],1)).toHaveLength(1);
   });
   it('persists user facts, keeps ambiguous aliases, rejects conflicts, and forgets deleted memories',async()=>{
     const path = join(await mkdtemp(join(tmpdir(),'captured-memory-')),'context.sqlite');
