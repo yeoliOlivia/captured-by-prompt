@@ -1,6 +1,6 @@
 # Captured by Prompt — Ideas and roadmap
 
-Living planning notes, updated October 6, 2026. These are product ideas, hypotheses, and proposed experiments—not commitments or claims that everything below is implemented. See the [README](../README.md) for setup and documented current behavior.
+Living planning notes, updated October 12, 2026. These are product ideas, hypotheses, and proposed experiments—not commitments or claims that everything below is implemented. See the [README](../README.md) for setup and documented current behavior.
 
 ## Product direction
 
@@ -101,6 +101,28 @@ Keep the adjustable cosine-similarity threshold and evaluate how understandable 
 - Calibrate defaults against labeled searches; cosine scores are not probabilities.
 - Evaluate thresholds separately across embedding models and personal-reference searches, whose scores may behave differently.
 
+## 6. Social direction: trip pooling, map, and recaps
+
+After a trip, friends pool their photos on a shared map, the app finds who is in each photo, and it builds recaps that make curation easy. Personal search stays the everyday use; a public layer comes only after the private loop works. Priorities remain cost first, then efficiency, then quality. The editable plan lives in the [Social direction plan](https://claude.ai/code/artifact/f67c45a1-2b33-4ac9-a2a9-fad368654b58).
+
+Where it stands: trip pooling is built and tested on the `map-version` branch (capture time, location rounded to about 1 km, contributor from folder name, trips with dates and members, a batched and cached vision check of who appears in each photo using anonymous labels, and per-person export). It is not on `main` yet; a trial merge conflicts only in `README.md` and `playground/server.ts`. The iPhone app has no trip view, and phone imports do not record a contributor.
+
+Phases, each gated on the one before:
+
+1. **Land pooling on main.** Port `map-version` onto current `main`, resolve the two conflicts, and rerun all tests. Gate: `npm test`, `npm run test:web`, and a manual trip run on sample folders pass.
+2. **Trip map.** Show a trip's pooled photos on a map using the stored coarse location, grouped by place and filtered by member. Gate: works in the browser and the iPhone app, and phone imports record a contributor.
+3. **Recaps and collages.** Extract color palettes on the device, group photos by mood with existing embeddings, and fill collage templates; use a model call only for an optional caption. Gate: a sample-trip recap needs at most one paid call.
+4. **Opt-in public landmark feed.** Pinterest-style "what others shot here," with posts snapped to named landmarks and empty spots seeded with openly licensed geotagged photos. Gate: the guardrails below are enforced, and hosting and moderation costs are estimated first.
+
+Guardrails:
+
+- Store and share only rounded locations or named landmarks, never exact GPS, which reveals homes and routines.
+- A public post may show only people who opted in; otherwise it must contain no people or blur faces.
+- Trip suggestions go only to trip members, never return a person's own photos, and send uncertain matches only when picked.
+- Identification never sends names or relationships to the model.
+- Run color and recap analysis on the device and cache every vision result.
+- Apply "the more you share, the more you get" inside a trip (see friends' photos of you once you share yours), not publicly, where it rewards low-effort uploads.
+
 ## Proposed next steps
 
 - [ ] Assemble a small evaluation collection and query set, preserving the “tennis on grass” example.
@@ -110,6 +132,9 @@ Keep the adjustable cosine-similarity threshold and evaluate how understandable 
 - [ ] Prototype binary and textual feedback capture before choosing a personal training method.
 - [ ] Compare explicit preference retrieval with a lightweight learned ranker.
 - [ ] Decide whether shared Qwen fine-tuning or per-user LoRA is warranted by the results.
+- [ ] Port trip pooling from `map-version` onto `main` and rerun all tests.
+- [ ] Add a trip map and record a contributor for iPhone imports.
+- [ ] Prototype on-device color and mood recaps for a sample trip.
 
 ## Open decisions
 
@@ -118,5 +143,10 @@ Keep the adjustable cosine-similarity threshold and evaluate how understandable 
 - How much feedback will users realistically give, and how quickly should it help?
 - What model-serving cost and latency are acceptable?
 - Which personal data stays local, which reaches model providers, and what may be used for shared training?
+- How do friends' photos reach one organizer without a server: AirDrop, a shared iCloud album, or a small relay?
+- Which map provider: Apple MapKit on iPhone, and which tile source in the browser?
+- Is a "vibe" a color palette only, or named mood clusters?
+- Is a public feed a separate app or a tab in this one?
+- Where do relationship labels and feedback learning fit relative to the social phases?
 
 Add new ideas here as they arise. Record experiment outcomes and accepted decisions alongside them so tentative ideas do not silently become requirements.
