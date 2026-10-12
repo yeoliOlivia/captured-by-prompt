@@ -2,9 +2,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const settings=vi.hoisted(()=>new Map<string,string>());
 vi.mock('./store',()=>({store:{setting:async(key:string)=>settings.get(key)??null,token:async()=> 'a'.repeat(64)}}));
 beforeEach(()=>{settings.clear();settings.set('server-url','http://192.168.1.2:8790');});
-afterEach(()=>vi.unstubAllGlobals());
+afterEach(()=>{vi.unstubAllGlobals();vi.useRealTimers();});
 const request={query:'tennis on grass',context:true,verify:false,photoIds:['b'.repeat(64)]};
 describe('shared mobile API',()=>{
+  it('allows a multi-stage personal search to outlast the shorter upload timeout',async()=>{
+    vi.useFakeTimers();
+    let signal:AbortSignal|undefined;
+    vi.stubGlobal('fetch',vi.fn(async(_url,init)=>{
+      signal=init.signal;
+      await new Promise(r=>setTimeout(r,210000));
+      return new Response(JSON.stringify({results:[],cached:false,model:'gemini-embedding-2',verified:true,contextUsed:[]}));
+    }));
+    const {api}=await import('./api');const pending=api.search(request);
+    await vi.advanceTimersByTimeAsync(210000);
+    expect(signal?.aborted).toBe(false);
+    expect(await pending).toMatchObject({verified:true});
+    expect(vi.getTimerCount()).toBe(0);
+  });
   it('uses the same search route and passes explicit photo scope and context settings',async()=>{
     const fetch=vi.fn(async()=>new Response(JSON.stringify({results:[],cached:false,model:'gemini-embedding-2',verified:false,contextUsed:[]})));
     vi.stubGlobal('fetch',fetch);const {api}=await import('./api');

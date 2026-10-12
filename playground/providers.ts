@@ -12,9 +12,11 @@ export type VerificationContext = { facts: unknown; references: ContextReference
 export type Provider = { plan?(query: string, facts?: unknown): Promise<unknown>; image(bytes: Buffer): Promise<number[]>; text(query: string): Promise<number[]>; verify?(query: string, photos: Candidate[], context?: VerificationContext): Promise<unknown> };
 export function vector(values: unknown, dimensions = 3072): number[] {
   const result = z.array(z.number().finite()).length(dimensions).parse(values);
-  const norm = Math.hypot(...result);
-  if (!norm) throw new Error('Invalid embedding');
-  return result.map(v => v / norm);
+  const scale = Math.max(...result.map(Math.abs));
+  if (!scale) throw new Error('Invalid embedding');
+  const scaled = result.map(v => v / scale);
+  const norm = Math.hypot(...scaled);
+  return scaled.map(v => v / norm);
 }
 const VerdictSchema = z.object({
   requirements: z.array(z.string().min(1).max(500)).min(1).max(16),

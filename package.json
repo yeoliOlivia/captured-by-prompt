@@ -13,6 +13,8 @@
   "scripts": {
     "dev:web": "node --import tsx scripts/start-server.ts",
     "test:web": "node --import tsx playground/verify.ts",
+    "test:browser": "node --import tsx scripts/verify-browser.ts",
+    "test:bundles": "python3 scripts/test_bundle_dataset.py",
     "dev:api": "node --import tsx scripts/start-server.ts",
     "dev:mobile": "npm run start --workspace @captured/mobile",
     "typecheck": "npm run typecheck --workspaces --if-present && npm run typecheck:server",
@@ -28,14 +30,15 @@
     "ios": "npm run ios --workspace @captured/mobile"
   },
   "devDependencies": {
-    "typescript": "~5.9.3",
-    "tsx": "^4.20.0",
-    "vitest": "^5.0.1",
     "@types/node": "^24.0.0",
     "@types/react": "~19.2.0",
+    "playwright": "1.62.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "react-native": "0.86.3"
+    "react-native": "0.86.3",
+    "tsx": "^4.20.0",
+    "typescript": "~5.9.3",
+    "vitest": "^5.0.1"
   },
   "overrides": {
     "react": "19.2.3",

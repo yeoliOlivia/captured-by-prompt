@@ -3,7 +3,7 @@ const $ = id => document.getElementById(id);
 const token = document.querySelector('meta[name="playground-session"]').content;
 let searchActive = false, searchSequence = 0;
 try { const saved = sessionStorage.getItem('captured-active-query'); if (saved) { searchActive = true; $('prompt').value = saved; } } catch {}
-let state, uploading = false, searching = false, showingResults = false, signature = '', lastError = '';
+let state, uploading = false, searching = false, showingResults = false, signature = '', lastError = '', stateIdentity = '', contextVersion = '', savingContext = false, refreshSequence = 0;
 async function request(path, body, extra = {}) {
   const response = await fetch(path, { method: 'POST', headers: { 'x-playground-session': token, 'content-type': 'application/json', ...extra.headers }, body: JSON.stringify(body), ...extra });
   const result = await response.json();
@@ -39,8 +39,20 @@ function gallery(photos, ranked = false, keepPage = false) {
   $('more').hidden = visiblePhotos >= photos.length;
   $('more').textContent = `Show more (${Math.min(visiblePhotos,photos.length)} of ${photos.length})`;
 }
-async function refresh() {
-  const response = await fetch('/state'); if (!response.ok) throw new Error('Could not load collection.'); state = await response.json();
+async function refresh(preserveClarification = false) {
+  const sequence = ++refreshSequence;
+  const response = await fetch('/state'); if (!response.ok) throw new Error('Could not load collection.');
+  const nextState = await response.json();
+  if (sequence !== refreshSequence) return;
+  state = nextState;
+  const nextIdentity = JSON.stringify([state.datasetId,state.provider,state.model,state.dimensions]);
+  const changed = stateIdentity && (stateIdentity !== nextIdentity || contextVersion !== state.contextVersion);
+  if (stateIdentity && (stateIdentity !== nextIdentity || (contextVersion !== state.contextVersion && !preserveClarification && !savingContext))) {
+    searchSequence++; cancelClarification(); signature = '';
+    if (searchActive) emptySearch('The workspace model or saved context changed. Run your search again.');
+  }
+  stateIdentity = nextIdentity;
+  contextVersion = state.contextVersion;
   $('connection-status').textContent = state.configured ? `${state.providerLabel} key loaded` : 'API key not loaded';
   $('key-form').hidden = state.configured; $('connected-controls').hidden = !state.configured;
   $('index-status').textContent = `${state.indexed} of ${state.total} photos ready`;
@@ -58,6 +70,7 @@ async function refresh() {
   const next = JSON.stringify(state.photos);
   if (!searchActive && next !== signature) { gallery(state.photos,false,true); signature = next; }
   if (!searchActive) $('results-subtitle').textContent = `${state.total} saved photos · ${state.indexed} searchable`;
+  if (changed) await loadMemories();
 }
 $('key-form').onsubmit = async e => { e.preventDefault(); $('connect').disabled = true; try { await request('/connect', { key: $('key').value, provider: $('provider').value }); $('key').value = ''; if (searchActive) emptySearch('Run your search again with the connected provider.'); if (!searchActive) { showingResults = false; signature = ''; $('results-title').textContent = 'Your collection'; } $('requirements').hidden = true; notice('Key loaded. Analyze your photos to make them searchable.'); await refresh(); $('key-panel').open = false; } catch(e) { notice(e.message,true); } finally { $('connect').disabled = false; } };
 $('disconnect').onclick = async () => { try { await request('/disconnect',{}); await refresh(); $('key-panel').open = true; notice('Key forgotten. Saved photos and embeddings are still here.'); } catch(e) { notice(e.message,true); } };
@@ -102,11 +115,11 @@ function showQuestion(question) {
     if (memory.photoIds[0]) { const img = document.createElement('img'); img.src = `/photos/${memory.photoIds[0]}`; img.alt = ''; img.style.cssText = 'width:44px;height:44px;object-fit:cover;border-radius:7px;vertical-align:middle;margin-right:8px'; button.prepend(img); }
     button.onclick = async () => {
       if (!pendingSearch || searching) return;
-      button.disabled = true;
+      button.disabled = true; savingContext = true;
       try {
-        if (!question.choices.length) { await request('/context/save',{...memory,isMe:question.term==='me' ? true : memory.isMe,aliases:question.term==='me' ? memory.aliases : [...new Set([...memory.aliases,question.term])]}); await loadMemories(); }
+        if (!question.choices.length) { await request('/context/save',{...memory,isMe:question.term==='me' ? true : memory.isMe,aliases:question.term==='me' ? memory.aliases : [...new Set([...memory.aliases,question.term])]}); await loadMemories(); await refresh(true); }
         pendingSearch.bindings[question.term] = memory.id; await runSearch(pendingSearch);
-      } catch(e) { notice(e.message,true); } finally {button.disabled = false;}
+      } catch(e) { notice(e.message,true); } finally {button.disabled = false;savingContext = false;}
     };
     $('context-choices').append(button);
   }
@@ -139,8 +152,9 @@ $('cancel-context').onclick = () => { cancelClarification(); emptySearch('Search
 $('reset').onclick = () => { searchSequence++; searchActive = false; try {sessionStorage.removeItem('captured-active-query');} catch {} cancelClarification(); lastSearch = null; $('context-used').hidden = true; if (!searchActive) { showingResults = false; signature = ''; $('results-title').textContent = 'Your collection'; } $('prompt').value = ''; $('requirements').hidden = true; renderMatches(); notice(''); refresh().catch(e=>notice(e.message,true)); };
 async function upload(files) {
   if (uploading || state?.indexing || state?.searching) { notice('Wait for the current operation to finish.',true); return; }
-  uploading = true; await refresh(); let added = 0, duplicates = 0; const failures = [];
+  uploading = true; let added = 0, duplicates = 0; const failures = [];
   try {
+    await refresh();
     for (const [i,file] of [...files].entries()) {
       $('upload-status').textContent = `Saving ${i+1} of ${files.length}: ${file.name}`;
       if (file.size > 25*1024*1024) { failures.push(`${file.name}: larger than 25 MB`); continue; }
@@ -149,7 +163,7 @@ async function upload(files) {
     }
     if (!searchActive) { showingResults = false; signature = ''; $('results-title').textContent = 'Your collection'; }
     notice(failures.length ? failures.join(' • ') : `${added} photos saved${duplicates ? `; ${duplicates} duplicates skipped` : ''}. ${state.configured ? 'Click Analyze photos to index them.' : 'Add your provider key when you’re ready to analyze them.'}`,!!failures.length);
-  } finally { uploading = false; $('files').value = ''; $('upload-status').textContent = `${added} saved · ${duplicates} duplicates · ${failures.length} failed`; await refresh(); }
+  } finally { uploading = false; $('files').value = ''; $('upload-status').textContent = `${added} saved · ${duplicates} duplicates · ${failures.length} failed`; await refresh().catch(e=>notice(e.message,true)); }
 }
 $('files').onchange = e => upload(e.target.files).catch(e=>notice(e.message,true));
 $('drop').ondragover = e => { e.preventDefault(); $('drop').classList.add('drag'); };
@@ -237,19 +251,19 @@ $('add-memory').onclick = () => { cancelClarification(); openMemory(null); };
 $('close-memory').onclick = () => { $('memory-form').hidden = true; };
 $('memory-panel').addEventListener('toggle',()=>{if ($('memory-panel').open) loadMemories().catch(e=>notice(e.message,true));});
 $('memory-form').onsubmit = async e => {
-  e.preventDefault(); $('save-memory').disabled = true; $('context-error').textContent = '';
+  e.preventDefault(); $('save-memory').disabled = true; $('context-error').textContent = ''; savingContext = true;
   try {
     const payload = {kind:$('memory-kind').value,name:$('memory-name').value,qualifier:$('memory-qualifier').value,aliases:$('memory-aliases').value.split(',').map(s=>s.trim()).filter(Boolean),notes:$('memory-notes').value,photoIds:[...selectedPhotos],isMe:$('memory-me').checked,startDate:$('memory-start').value,endDate:$('memory-end').value};
     if (editingMemory) {payload.id = editingMemory.id; payload.revision = editingMemory.revision;}
     const {memory} = await request('/context/save',payload);
-    await loadMemories(); $('memory-form').hidden = true;
+    await loadMemories(); await refresh(true); $('memory-form').hidden = true;
     if (searchActive) emptySearch('Context changed. Search again to refresh your matches.'); else signature = '';
     if (pendingSearch) {
       if (editingTerm) pendingSearch.bindings[editingTerm] = memory.id;
       await runSearch(pendingSearch);
     } else { notice('Memory saved on this Mac. Future personal searches can use it.'); await refresh(); }
   } catch(e) { $('context-error').textContent = e.message; }
-  finally { $('save-memory').disabled = false; }
+  finally { $('save-memory').disabled = false; savingContext = false; }
 };
 $('delete-memory').onclick = async () => {
   if (!editingMemory) return;

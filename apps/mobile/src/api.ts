@@ -7,7 +7,8 @@ export async function callApi<T>(path: string, schema: z.ZodType<T>, body?: unkn
   const token = await store.token();
   if (!url || token.length < 32) throw new Error('Open Settings to connect your workspace first.');
   const controller = new AbortController();
-  const timer = setTimeout(()=>controller.abort(),180000);
+  // A personal search can perform four sequential provider calls, each with a 90s limit.
+  const timer = setTimeout(()=>controller.abort(),path==='/search' ? 390000 : 180000);
   try {
     const response = await fetch(`${url.replace(/\/$/,'')}${path}`,{
       method: body === undefined ? 'GET' : 'POST',

@@ -25,6 +25,12 @@ beforeEach(() => { vi.resetModules(); state.db = new DatabaseSync(':memory:'); }
 afterEach(() => state.db?.close());
 
 describe('persistent index SQL (real SQLite, Expo bridge substituted)', () => {
+  it('keeps photos and workspace links readable when obsolete analysis JSON is damaged',async()=>{
+    const {store}=await import('./store');await store.add([photo('old')]);await store.link('old','workspace','remote');
+    state.db!.prepare("UPDATE photos SET status = 'ready', analysis = ? WHERE id = ?").run('{broken','old');
+    expect(await store.list()).toMatchObject([{id:'old',status:'pending',analysis:null}]);
+    expect(await store.links('workspace')).toEqual({old:'remote'});
+  });
   it('accepts more than 30 photos and rejects exceeding the shared collection limit atomically', async () => {
     const { store } = await import('./store');
     await store.add(Array.from({ length: 30 }, (_, i) => photo(String(i), { status: 'pending', analysis: null })));

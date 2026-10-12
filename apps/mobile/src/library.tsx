@@ -7,6 +7,7 @@ import nativePhotos from '../modules/captured-photos';
 import { runPhotoAction, selectionSnapshot, type ActionPhoto, type PhotoAction } from './photo-actions';
 import { store } from './store';
 import { api } from './api';
+import { clarifiedDraft } from './context-draft';
 import { selectPhotos, previewBase64, deleteLocalPhoto, deleteAllLocalPhotos } from './photos';
 
 export type MobilePhoto = Photo & {remoteId?:string; indexed:boolean};
@@ -47,7 +48,7 @@ export function LibraryProvider({children}:{children:ReactNode}) {
     const state = await api.state();
     const [mapped,context] = await Promise.all([store.links(state.datasetId),api.memories()]);
     if(version !== refreshVersion.current) return;
-    const nextIdentity = `${state.datasetId}:${state.provider}:${state.model}:${state.dimensions}`;
+    const nextIdentity = `${state.datasetId}:${state.provider}:${state.model}:${state.dimensions}:${state.contextVersion}`;
     if(identity.current && identity.current !== nextIdentity) clearResults();
     identity.current = nextIdentity;
     setWorkspace(state); setLinks(mapped); setMemories(context.memories);
@@ -79,8 +80,9 @@ export function LibraryProvider({children}:{children:ReactNode}) {
   const matches=photos.filter(p=>p.remoteId && hitIds.has(p.remoteId)).sort((a,b)=>hitIds.get(a.remoteId!)!-hitIds.get(b.remoteId!)!);
   async function runSearch(text:string,nextBindings:Record<string,string>={}) {
     if(!consent) throw new Error('Review cloud analysis before searching.');
-    setSearchingView(true);setResults(null);setQuestions([]);setQuery(text);bindings.current=nextBindings;
+    setSearchingView(true);setResults(null);setQuestions([]);setQuery(text);
     await refresh();
+    bindings.current=nextBindings;
     const state=await api.state(), mapped=await store.links(state.datasetId), currentPhotos=await store.list();
     const available=new Set(state.photos.filter(p=>p.indexed).map(p=>p.id));
     const photoIds=[...new Set(currentPhotos.map(p=>mapped[p.id]).filter((id):id is string=>!!id && available.has(id)))];
@@ -148,7 +150,7 @@ export function LibraryProvider({children}:{children:ReactNode}) {
     });},
     async saveMemory(draft){return perform('saving',async()=>{
       const question=editingQuestion;
-      const {memory}=await api.saveMemory(draft);
+      const {memory}=await api.saveMemory(clarifiedDraft(draft,question));
       setMemories((await api.memories()).memories);setResults(null);setEditingQuestion(null);
       if(question) await runSearch(query,{...bindings.current,[question.term]:memory.id});
       else setNotice('Context saved. Run your search again to use the update.');

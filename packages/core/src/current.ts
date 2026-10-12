@@ -9,6 +9,7 @@ export const PhotoScope = z.array(PhotoId).max(COLLECTION_LIMIT);
 export const PublicPhoto = z.object({ id: PhotoId, name: z.string(), image: z.string(), indexed: z.boolean() });
 export const WorkspaceState = z.object({
   protocol: z.literal('captured-v2'), datasetId: z.string().uuid(),
+  contextVersion: z.string().default(''),
   photos: z.array(PublicPhoto), configured: z.boolean(), indexing: z.boolean(), searching: z.boolean(),
   indexed: z.number(), total: z.number(), current: z.string(), error: z.string(),
   dimensions: z.number(), model: z.string(), provider: z.enum(['gemini','qwen']), providerLabel: z.string(),

@@ -26,20 +26,27 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
   catch (e) { if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e; }
   const datasetId = z.string().uuid().parse((await readFile(identityFile,'utf8')).trim());
   const photos: Photo[] = [];
+  let damagedRecords = 0, damagedEmbeddings = 0;
   let selected: ProviderName = 'gemini';
   const cacheKey = (name: ProviderName) => `${CONFIG[name].model}:${CONFIG[name].dimensions}`;
   const embeddingFor = (photo: Photo) => photo.embeddings?.[cacheKey(selected)];
   for (const name of await readdir(datasetDir)) {
     if (!/^[a-f0-9]{64}\.json$/.test(name)) continue;
-    const photo = JSON.parse(await readFile(resolve(datasetDir, name), 'utf8')) as Photo;
-    if (photo.id !== name.slice(0, -5)) throw new Error('Invalid dataset record');
-    await stat(resolve(datasetDir, `${photo.id}.jpg`));
-    photo.embeddings ??= {};
+    let photo: Photo;
+    try {
+      photo = JSON.parse(await readFile(resolve(datasetDir, name), 'utf8')) as Photo;
+      if (!photo || photo.id !== name.slice(0, -5) || typeof photo.name !== 'string') throw new Error('Invalid dataset record');
+      if (!(await stat(resolve(datasetDir, `${photo.id}.jpg`))).isFile()) throw new Error('Missing photo');
+    } catch { damagedRecords++; continue; }
+    if (!photo.embeddings || typeof photo.embeddings !== 'object' || Array.isArray(photo.embeddings)) photo.embeddings = {};
     // Migrate legacy caches without discarding either provider's vectors.
     for (const name of Object.keys(CONFIG) as ProviderName[]) {
       const config = CONFIG[name];
       if (photo.model === config.model && photo.embedding?.length === config.dimensions && !photo.embeddings[cacheKey(name)]) photo.embeddings[cacheKey(name)] = photo.embedding;
-      if (photo.embeddings[cacheKey(name)]) photo.embeddings[cacheKey(name)] = vector(photo.embeddings[cacheKey(name)],config.dimensions);
+      if (photo.embeddings[cacheKey(name)]) {
+        try { photo.embeddings[cacheKey(name)] = vector(photo.embeddings[cacheKey(name)],config.dimensions); }
+        catch { delete photo.embeddings[cacheKey(name)]; damagedEmbeddings++; }
+      }
     }
     photos.push(photo);
   }
@@ -82,6 +89,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
   }
   const initialScan = await scanFolders();
   const contextStore = openContext(resolve(datasetDir,'.context.sqlite'));
+  const contextVersion = () => createHash('sha256').update(JSON.stringify(contextStore.list())).digest('hex');
   const plans = new Map<string,Plan>();
   const resolvedQueries = new Map<string,string>();
   let contextCalls = 0;
@@ -91,7 +99,12 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
   let provider: Provider | null = null;
   let task: Promise<void> | null = null;
   let searching = false, uploading = false, pause = false, scanning = false;
-  let error = initialScan.skipped.length ? `Could not import ${initialScan.skipped.length} files (unsupported image or collection limit).` : '', current = '';
+  const datasetWarnings = [
+    ...(initialScan.skipped.length ? [`Could not import ${initialScan.skipped.length} files (unsupported image or collection limit).`] : []),
+    ...(damagedRecords ? [`Skipped ${damagedRecords} damaged cache records or missing photos. Original files were kept; restore them from backup to recover these entries.`] : []),
+    ...(damagedEmbeddings ? [`On startup, ${damagedEmbeddings} invalid embedding cache entries were marked for analysis again; valid saved embeddings were kept.`] : []),
+  ].join(' ');
+  let error = '', current = '';
   let imageCalls = 0, queryCalls = 0, verificationCalls = 0;
   const verifiedQueries = new Map<string, ReturnType<typeof validateVerification>>();
   const queries = new Map<string, number[]>();
@@ -134,7 +147,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
     if (!photo) return reply.code(404).send({ message: 'Photo not found.' });
     return reply.type('image/jpeg').send(await readFile(resolve(datasetDir, `${photo.id}.jpg`)));
   });
-  server.get('/state', async () => ({ protocol: 'captured-v2', datasetId, photos: photos.map(expose), datasetDir, configured: !!provider, indexing: !!task, searching, indexed: photos.filter(p => embeddingFor(p)).length, total: photos.length, current, error, imageCalls, queryCalls, dimensions: CONFIG[selected].dimensions, model: CONFIG[selected].model, provider: selected, providerLabel: CONFIG[selected].label, verificationModel: CONFIG[selected].vision, verificationCalls, contextCalls }));
+  server.get('/state', async () => ({ protocol: 'captured-v2', datasetId, contextVersion: contextVersion(), photos: photos.map(expose), datasetDir, configured: !!provider, indexing: !!task, searching, indexed: photos.filter(p => embeddingFor(p)).length, total: photos.length, current, error: [datasetWarnings,error].filter(Boolean).join(' '), imageCalls, queryCalls, dimensions: CONFIG[selected].dimensions, model: CONFIG[selected].model, provider: selected, providerLabel: CONFIG[selected].label, verificationModel: CONFIG[selected].vision, verificationCalls, contextCalls }));
   server.post('/scan', async (_, reply) => {
     if (task || uploading || searching || scanning) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
     scanning = true;
@@ -167,7 +180,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
     return { configured: true };
   });
   server.post('/disconnect', async (_, reply) => {
-    if (task || searching) return reply.code(409).send({ message: 'Pause indexing and wait for Gemini to finish.' });
+    if (task || searching) return reply.code(409).send({ message: 'Pause indexing and wait for the current model request to finish.' });
     provider = null; plans.clear(); resolvedQueries.clear(); queries.clear(); verifiedQueries.clear(); return { configured: false };
   });
   server.post('/index', async (req, reply) => {

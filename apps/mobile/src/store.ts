@@ -25,7 +25,9 @@ async function db() {
 }
 type Row = Omit<Photo, 'analysis'> & { analysis: string | null };
 function fromRow(row: Row): Photo {
-  const result = row.analysis ? AnalysisSchema.safeParse(JSON.parse(row.analysis)) : null;
+  let result = null;
+  try { result = row.analysis ? AnalysisSchema.safeParse(JSON.parse(row.analysis)) : null; }
+  catch { /* Legacy analysis is optional; a damaged cache must not hide the photo collection. */ }
   return { ...row, analysis: result?.success ? result.data : null, status: row.status === 'ready' && !result?.success ? 'pending' : row.status };
 }
 export const store = {
