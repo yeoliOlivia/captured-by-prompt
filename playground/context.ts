@@ -37,6 +37,28 @@ export function matches(memory:Memory, term:string) {
   if (normalize(term) === 'me') return memory.isMe;
   return [memory.name, `${memory.name} ${memory.qualifier}`, ...memory.aliases].some(a=>normalize(a)===normalize(term));
 }
+const words = (s:string) => normalize(s.replace(/['’]s(?![\p{L}\p{N}])/giu,'')).replace(/[^\p{L}\p{N}]+/gu,' ').trim();
+// The interpretation model never sees the store, so a bare saved name such as "lily"
+// can read as an ordinary word. Saved names and aliases found in the query are
+// references whatever the model returned; the longest overlapping phrase wins.
+export function withSavedReferences(plan:Plan, query:string, memories:Memory[]):Plan {
+  const text = ` ${words(query)} `;
+  const found: {term:string;kind:z.infer<typeof Kind>;key:string;start:number;end:number}[] = [];
+  for (const m of memories) for (const name of [`${m.name} ${m.qualifier}`, m.name, ...m.aliases]) {
+    const key = words(name);
+    if (!key || key === 'me') continue;
+    for (let i = text.indexOf(` ${key} `); i >= 0; i = text.indexOf(` ${key} `, i+1)) found.push({term:name.trim(),kind:m.kind,key,start:i,end:i+key.length+1});
+  }
+  found.sort((a,b)=>(b.end-b.start)-(a.end-a.start) || a.start-b.start);
+  const kept: typeof found = [];
+  for (const f of found) {
+    if (kept.some(k=>f.start<k.end && k.start<f.end && (k.start!==f.start || k.end!==f.end))) continue;
+    if (!kept.some(k=>k.key===f.key && k.kind===f.kind)) kept.push(f);
+  }
+  const keys = new Set(kept.map(k=>k.key));
+  const references = [...kept.map(({term,kind})=>({term,kind})), ...plan.references.filter(r=>!keys.has(words(r.term)))].slice(0,8);
+  return {...plan,references};
+}
 export function resolveContext(plan:Plan, memories:Memory[], bindings:Record<string,string> = {}) {
   const resolved: {term:string; memory:Memory}[] = [];
   const questions: {term:string;kind:z.infer<typeof Kind>;choices:Memory[]}[] = [];

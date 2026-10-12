@@ -3,7 +3,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
-import { openContext,resolveContext } from './context';
+import { openContext,resolveContext,withSavedReferences } from './context';
 import { createPlaygroundServer } from './server';
 import { visibleMatches,strictnessValue,BASELINE_SIMILARITY } from './search-utils.js';
 
@@ -57,6 +57,52 @@ describe('personal context and search thresholds',()=>{
     store.remove(edited.id,edited.revision);
     expect(resolveContext({...plan,references:[{term:'Mark Chen',kind:'person'}]},store.list()).questions).toHaveLength(1);
     store.close();
+  });
+  it('finds saved names and aliases in the query even when the model returns no reference',async()=>{
+    const store = openContext(join(await mkdtemp(join(tmpdir(),'captured-saved-')),'context.sqlite'));
+    const photo = 'a'.repeat(64), ids = new Set([photo]);
+    const lily = store.save({kind:'person',name:'lily',qualifier:'baby',photoIds:[photo]},ids);
+    const college = store.save({kind:'person',name:'Mark',qualifier:'from college',photoIds:[photo]},ids);
+    store.save({kind:'person',name:'Mark',qualifier:'from soccer',photoIds:[photo]},ids);
+    const dog = store.save({kind:'object',name:'Biscuit',aliases:['my dog']},ids);
+    const none = {visualQuery:'flower',references:[]};
+    const resolve = (query:string,plan:any=none) => resolveContext(withSavedReferences(plan,query,store.list()),store.list());
+    expect(resolve('lily').resolved.map(r=>r.memory.id)).toEqual([lily.id]);
+    expect(resolve("Lily's first birthday").resolved.map(r=>r.memory.id)).toEqual([lily.id]);
+    expect(resolve('Lily baby at the park').resolved.map(r=>r.memory.id)).toEqual([lily.id]);
+    expect(resolve('lilypad on a pond').resolved).toEqual([]);
+    expect(resolve('Mark from college and my dog').resolved.map(r=>r.memory.id).sort()).toEqual([college.id,dog.id].sort());
+    expect(resolve('Mark').questions[0].choices).toHaveLength(2);
+    // The saved kind wins over a conflicting model guess for the same phrase.
+    expect(resolve('Biscuit',{visualQuery:'dog',references:[{term:'Biscuit',kind:'person'}]})).toMatchObject({questions:[],resolved:[{memory:{id:dog.id}}]});
+    store.close();
+  });
+  it('puts the tagged reference photo first for a bare saved name',async()=>{
+    const datasetDir = await mkdtemp(join(tmpdir(),'captured-lily-'));
+    let images = 0;
+    const unit = (i:number) => Array.from({length:3072},(_,j)=>j===i?1:0);
+    const server = await createPlaygroundServer({datasetDir,providerFactory:()=>({
+      image:async()=>unit(images++),
+      // The text embedding prefers the other photo, as "lily" the flower would.
+      text:async()=>unit(0).map((v,i)=>i===2?1:v),
+      plan:async()=>({visualQuery:'lily flower',references:[]}),
+      verify:async(query,photos)=>({requirements:[query],results:photos.map(p=>({id:p.id,checks:[{status:'pass',evidence:'test'}]}))}),
+    })});
+    try {
+      const token = (await server.inject({url:'/',headers:{host:'localhost'}})).body.match(/name="playground-session" content="([^"]+)"/)![1];
+      const headers = {host:'localhost','x-playground-session':token};
+      const post=(url:string,payload:any={})=>server.inject({method:'POST',url,headers,payload});
+      const upload=async(background:string)=>(await server.inject({method:'POST',url:'/upload',headers:{...headers,'content-type':'application/octet-stream'},payload:await sharp({create:{width:20,height:20,channels:3,background}}).png().toBuffer()})).json().photo;
+      const other = await upload('red'), baby = await upload('blue');
+      await post('/connect',{key:'test-only-key-long-enough'});await post('/index');
+      while((await server.inject({url:'/state',headers})).json().indexing) await new Promise(r=>setTimeout(r,2));
+      expect((await post('/search',{query:'lily',context:false})).json().results[0].id).toBe(other.id);
+      const memory=(await post('/context/save',{kind:'person',name:'lily',qualifier:'baby',photoIds:[baby.id]})).json().memory;
+      const result=(await post('/search',{query:'lily',context:true})).json();
+      expect(result.contextUsed.map((c:any)=>c.id)).toEqual([memory.id]);
+      expect(result.verified).toBe(true);
+      expect(result.results[0].id).toBe(baby.id);
+    } finally {await server.close();}
   });
   it('clarifies before embedding, resumes with relevant facts, verifies references, and invalidates edited context',async()=>{
     const datasetDir = await mkdtemp(join(tmpdir(),'captured-context-api-'));

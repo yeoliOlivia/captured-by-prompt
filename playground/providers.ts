@@ -47,7 +47,9 @@ export function geminiProvider(key: string): Provider {
       const parts: any[] = [{text:JSON.stringify({searchQuery:query})}];
       if (context) { parts.push({text:'PERSONAL CONTEXT: '+JSON.stringify(context.facts)}); for (const r of context.references) parts.push({text:'REFERENCE ONLY: '+r.label},{inlineData:{mimeType:'image/jpeg',data:r.bytes.toString('base64')}}); }
       for (const p of photos) parts.push({text:`Image ID: ${p.id}`},{inlineData:{mimeType:'image/jpeg',data:p.bytes.toString('base64')}});
-      const result = await client.models.generateContent({model:config.vision,contents:[{role:'user',parts}],config:{systemInstruction:verificationInstruction+(context ? personalInstruction : ''),responseMimeType:'application/json',responseJsonSchema:z.toJSONSchema(VerdictSchema),maxOutputTokens:12000}});
+      // Gemini rejects VerdictSchema as a response schema (400 INVALID_ARGUMENT, checked live), so the
+      // instruction carries the format and validateVerification enforces it, as with Qwen.
+      const result = await client.models.generateContent({model:config.vision,contents:[{role:'user',parts}],config:{systemInstruction:verificationInstruction+(context ? personalInstruction : ''),responseMimeType:'application/json',maxOutputTokens:12000}});
       return JSON.parse(result.text ?? '');
     },
   };

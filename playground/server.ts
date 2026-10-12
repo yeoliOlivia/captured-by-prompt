@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import { CONFIG, geminiProvider, qwenProvider, vector, validateVerification, type Provider, type ProviderName } from './providers.js';
 export { geminiProvider } from './providers.js';
 import sharp from 'sharp';
-import { openContext, PlanSchema, resolveContext, type Plan } from './context.js';
+import { openContext, PlanSchema, resolveContext, withSavedReferences, type Plan } from './context.js';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename, readdir, stat } from 'node:fs/promises';
 import { resolve, relative } from 'node:path';
@@ -11,8 +11,10 @@ import { z } from 'zod';
 const directory = fileURLToPath(new URL('.', import.meta.url));
 import { COLLECTION_LIMIT as PHOTO_LIMIT, PhotoScope } from '@captured/core/current';
 type Photo = { id: string; name: string; embedding?: number[]; model?: string; embeddings?: Record<string,number[]>; source?: { path: string; size: number; mtimeMs: number } };
-function providerError(e: unknown) {
+function providerError(e: unknown, step = '') {
   const status = Number((e as any)?.status ?? (e as any)?.statusCode);
+  // Keys travel in headers, never in messages; this shows the provider's real reason in the terminal.
+  console.error(`Provider error${step ? ` during ${step}` : ''}${Number.isFinite(status) ? ` (${status})` : ''}: ${String((e as Error)?.message ?? e).slice(0,500)}`);
   if (status === 429) return 'Provider quota reached. Your progress is saved; wait and try again.';
   if (status === 400 || status === 401 || status === 403) return 'Provider rejected the request. Check the API key, region, and model access.';
   return 'The model could not complete the request. Your photos and completed embeddings are saved. Try again.';
@@ -203,7 +205,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
           await save({ ...p, embeddings });
           p.embeddings = embeddings;
         }
-      } catch (e) { error = providerError(e); }
+      } catch (e) { error = providerError(e,'photo analysis'); }
       finally { current = ''; task = null; }
     })();
     return reply.code(202).send({ indexing: true });
@@ -217,6 +219,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
     const indexed = photos.filter(p => embeddingFor(p) && (!scope || scope.has(p.id)));
     if (!indexed.length) return reply.code(400).send({ message: 'Analyze your photos first.' });
     searching = true;
+    let step = 'query interpretation';
     try {
       let plan:Plan = {visualQuery:query,references:[]};
       if (useContext) {
@@ -225,7 +228,8 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
         if (cachedPlan) plan = cachedPlan;
         else { contextCalls++; plan = PlanSchema.parse(await provider.plan(query)); if (plans.size >= 100) plans.delete(plans.keys().next().value!); plans.set(query,plan); }
       }
-      const resolution = resolveContext(plan,contextStore.list(),bindings);
+      const saved = contextStore.list();
+      const resolution = resolveContext(useContext ? withSavedReferences(plan,query,saved) : plan,saved,bindings);
       if (resolution.questions.length) return {needsClarification:true,query,questions:resolution.questions};
       const memories = [...new Map(resolution.resolved.map(r=>[r.memory.id,r.memory])).values()];
       const contextUsed = resolution.resolved.map(r=>({term:r.term,id:r.memory.id,name:r.memory.name,qualifier:r.memory.qualifier}));
@@ -235,7 +239,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
         const prepared = resolvedQueries.get(resolutionKey);
         if (prepared) embeddingQuery = prepared;
         else {
-          contextCalls++;
+          step = 'query enrichment'; contextCalls++;
           embeddingQuery = PlanSchema.parse(await provider.plan!(query,{entities:memories,bindings:contextUsed})).visualQuery;
           if (resolvedQueries.size >= 100) resolvedQueries.delete(resolvedQueries.keys().next().value!);
           resolvedQueries.set(resolutionKey,embeddingQuery);
@@ -243,6 +247,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
       }
       const cached = queries.has(embeddingQuery);
       let embedding = queries.get(embeddingQuery);
+      step = 'query embedding';
       if (!embedding) { queryCalls++; embedding = vector(await provider.text(embeddingQuery),CONFIG[selected].dimensions); if (queries.size >= 100) queries.delete(queries.keys().next().value!); queries.set(embeddingQuery, embedding); }
       const results = indexed.map(p => ({ ...expose(p), similarity: embeddingFor(p)!.reduce((sum,v,i) => sum + v * embedding![i], 0) })).sort((a,b) => b.similarity-a.similarity);
       if (!verify && !memories.length) return { results, cached, model: CONFIG[selected].model, verified: false, contextUsed };
@@ -261,7 +266,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
       const verificationCached = !!verification;
       if (!verification) {
         const images = await Promise.all(candidates.map(async p=>({id:p.id,bytes:await readFile(resolve(datasetDir,`${p.id}.jpg`))})));
-        verificationCalls++;
+        step = 'visual check'; verificationCalls++;
         const references = [];
         for (const m of memories) for (const id of m.photoIds.slice(0,2)) references.push({label:JSON.stringify({entityId:m.id,name:m.name,qualifier:m.qualifier}),bytes:await readFile(resolve(datasetDir,`${id}.jpg`))});
         const facts = {entities:memories,bindings:contextUsed,candidates:candidates.map(p=>({id:p.id,confirmedEntityIds:memories.filter(m=>m.photoIds.includes(p.id)).map(m=>m.id)}))};
@@ -275,7 +280,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
       return { results: checked, cached, model: CONFIG[selected].model, verified:true, verificationCached, verificationModel: CONFIG[selected].vision,
         contextUsed, requirements:verification.requirements, checked:candidates.length, totalCandidates:results.length };
 
-    } catch (e) { return reply.code(502).send({ message: providerError(e) }); }
+    } catch (e) { return reply.code(502).send({ message: providerError(e,step) }); }
     finally { searching = false; }
   });
   server.addHook('onClose', async () => { pause = true; if (task) await task; provider = null; contextStore.close(); });
