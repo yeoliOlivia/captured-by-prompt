@@ -11,16 +11,25 @@
       "bundleIdentifier": "dev.captured.byprompt",
       "infoPlist": {
         "NSLocalNetworkUsageDescription": "Connect to your local development server for photo search.",
-        "NSAppTransportSecurity": { "NSAllowsLocalNetworking": true }
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        },
+        "NSPhotoLibraryUsageDescription": "Choose photos to search and explicitly share, favorite, organize, or delete selected originals.",
+        "NSPhotoLibraryAddUsageDescription": "Save selected photos to albums you choose."
       }
     },
     "plugins": [
-      "expo-router", "expo-sqlite", "expo-secure-store",
-      ["expo-image-picker", {
-        "photosPermission": "Select up to 30 photos to search. Your entire library is not scanned.",
-        "cameraPermission": false,
-        "microphonePermission": false
-      }]
+      "expo-router",
+      "expo-sqlite",
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Choose photos to search and explicitly share, favorite, organize, or delete selected originals.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ]
     ]
   }
 }

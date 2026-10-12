@@ -3,14 +3,15 @@ import { CONFIG, geminiProvider, qwenProvider, vector, validateIdentification, v
 import { readPhotoMetadata } from './exif.js';
 export { geminiProvider } from './providers.js';
 import sharp from 'sharp';
-import { matches, openContext, PlanSchema, resolveContext, type Memory, type Plan, type PhotoTag } from './context.js';
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { matches, openContext, PlanSchema, resolveContext, withSavedReferences, type Memory, type Plan, type PhotoTag } from './context.js';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename, readdir, stat } from 'node:fs/promises';
 import { resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 const directory = fileURLToPath(new URL('.', import.meta.url));
-const PHOTO_LIMIT = 10000;
+
+import { COLLECTION_LIMIT as PHOTO_LIMIT, PhotoScope } from '@captured/core/current';
 // capturedAt: EXIF local capture time. place: coarse location (about 1 km). contributor: whose phone it came from,
 // taken from <trip folder>/<person>/... under sample-dataset. metadataVersion marks records that have been read.
 type Photo = { id: string; name: string; embedding?: number[]; model?: string; embeddings?: Record<string,number[]>; source?: { path: string; size: number; mtimeMs: number };
@@ -20,30 +21,44 @@ const TAG_BATCH = 12;
 const contributorOf = (sourcePath: string) => { const parts = sourcePath.split(/[\\/]/); return parts.length >= 3 ? parts[1].slice(0,100) : null; };
 const safeName = (s: string) => s.replace(/[^\p{L}\p{N} ._-]/gu,'').replace(/^[ .]+/,'').trim().slice(0,80) || 'untitled';
 const tripDay = (p: Photo) => p.capturedAt?.slice(0,10) ?? '';
-function providerError(e: unknown) {
+function providerError(e: unknown, step = '') {
   const status = Number((e as any)?.status ?? (e as any)?.statusCode);
+  // Keys travel in headers, never in messages; this shows the provider's real reason in the terminal.
+  console.error(`Provider error${step ? ` during ${step}` : ''}${Number.isFinite(status) ? ` (${status})` : ''}: ${String((e as Error)?.message ?? e).slice(0,500)}`);
   if (status === 429) return 'Provider quota reached. Your progress is saved; wait and try again.';
   if (status === 400 || status === 401 || status === 403) return 'Provider rejected the request. Check the API key, region, and model access.';
   return 'The model could not complete the request. Your photos and completed embeddings are saved. Try again.';
 }
-export async function createPlaygroundServer(options: { datasetDir?: string; providerFactory?: (key: string, name: ProviderName) => Provider } = {}) {
+export async function createPlaygroundServer(options: { datasetDir?: string; mobileToken?: string; providerFactory?: (key: string, name: ProviderName) => Provider } = {}) {
   const datasetDir = options.datasetDir ?? resolve(directory, '../sample-dataset');
   await mkdir(datasetDir, { recursive: true });
+  if (options.mobileToken && (options.mobileToken.length < 32 || /\s/.test(options.mobileToken))) throw new Error('Mobile access requires a token of at least 32 characters with no whitespace.');
+  const identityFile = resolve(datasetDir, '.dataset-id');
+  try { await writeFile(identityFile, randomUUID(), {flag:'wx', mode:0o600}); }
+  catch (e) { if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e; }
+  const datasetId = z.string().uuid().parse((await readFile(identityFile,'utf8')).trim());
   const photos: Photo[] = [];
+  let damagedRecords = 0, damagedEmbeddings = 0;
   let selected: ProviderName = 'gemini';
   const cacheKey = (name: ProviderName) => `${CONFIG[name].model}:${CONFIG[name].dimensions}`;
   const embeddingFor = (photo: Photo) => photo.embeddings?.[cacheKey(selected)];
   for (const name of await readdir(datasetDir)) {
     if (!/^[a-f0-9]{64}\.json$/.test(name)) continue;
-    const photo = JSON.parse(await readFile(resolve(datasetDir, name), 'utf8')) as Photo;
-    if (photo.id !== name.slice(0, -5)) throw new Error('Invalid dataset record');
-    await stat(resolve(datasetDir, `${photo.id}.jpg`));
-    photo.embeddings ??= {};
+    let photo: Photo;
+    try {
+      photo = JSON.parse(await readFile(resolve(datasetDir, name), 'utf8')) as Photo;
+      if (!photo || photo.id !== name.slice(0, -5) || typeof photo.name !== 'string') throw new Error('Invalid dataset record');
+      if (!(await stat(resolve(datasetDir, `${photo.id}.jpg`))).isFile()) throw new Error('Missing photo');
+    } catch { damagedRecords++; continue; }
+    if (!photo.embeddings || typeof photo.embeddings !== 'object' || Array.isArray(photo.embeddings)) photo.embeddings = {};
     // Migrate legacy caches without discarding either provider's vectors.
     for (const name of Object.keys(CONFIG) as ProviderName[]) {
       const config = CONFIG[name];
       if (photo.model === config.model && photo.embedding?.length === config.dimensions && !photo.embeddings[cacheKey(name)]) photo.embeddings[cacheKey(name)] = photo.embedding;
-      if (photo.embeddings[cacheKey(name)]) photo.embeddings[cacheKey(name)] = vector(photo.embeddings[cacheKey(name)],config.dimensions);
+      if (photo.embeddings[cacheKey(name)]) {
+        try { photo.embeddings[cacheKey(name)] = vector(photo.embeddings[cacheKey(name)],config.dimensions); }
+        catch { delete photo.embeddings[cacheKey(name)]; damagedEmbeddings++; }
+      }
     }
     photos.push(photo);
   }
@@ -94,6 +109,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
   }
   const initialScan = await scanFolders();
   const contextStore = openContext(resolve(datasetDir,'.context.sqlite'));
+  const contextVersion = () => createHash('sha256').update(JSON.stringify(contextStore.list())).digest('hex');
   const plans = new Map<string,Plan>();
   const resolvedQueries = new Map<string,string>();
   let contextCalls = 0;
@@ -103,7 +119,12 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
   let provider: Provider | null = null;
   let task: Promise<void> | null = null;
   let searching = false, uploading = false, pause = false, scanning = false;
-  let error = initialScan.skipped.length ? `Could not import ${initialScan.skipped.length} files (unsupported image or collection limit).` : '', current = '';
+  const datasetWarnings = [
+    ...(initialScan.skipped.length ? [`Could not import ${initialScan.skipped.length} files (unsupported image or collection limit).`] : []),
+    ...(damagedRecords ? [`Skipped ${damagedRecords} damaged cache records or missing photos. Original files were kept; restore them from backup to recover these entries.`] : []),
+    ...(damagedEmbeddings ? [`On startup, ${damagedEmbeddings} invalid embedding cache entries were marked for analysis again; valid saved embeddings were kept.`] : []),
+  ].join(' ');
+  let error = '', current = '';
   let imageCalls = 0, queryCalls = 0, verificationCalls = 0;
   const verifiedQueries = new Map<string, ReturnType<typeof validateVerification>>();
   const queries = new Map<string, number[]>();
@@ -111,10 +132,15 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
   let tagTask: Promise<void> | null = null, tagging: { tripId: string; done: number; total: number } | null = null, tagError = '', identifyCalls = 0;
   server.addHook('onRequest', async (request, reply) => {
     const host = request.headers.host ?? '';
-    if (!/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host)) return reply.code(403).send({ message: 'Open this page on localhost.' });
+    const local = /^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host) && ['127.0.0.1','::1','::ffff:127.0.0.1'].includes(request.ip);
+    const suppliedToken = Buffer.from(String(request.headers.authorization ?? ''));
+    const expectedToken = Buffer.from(`Bearer ${options.mobileToken ?? ''}`);
+    const authenticated = !!options.mobileToken && suppliedToken.length === expectedToken.length && timingSafeEqual(suppliedToken,expectedToken);
+    if ((!local || request.headers.authorization) && !authenticated) return reply.code(401).send({message:'Connect using the workspace token in mobile Settings.'});
+    if (authenticated && request.headers.origin && request.headers.origin !== `http://${host}`) return reply.code(403).send({message:'Cross-origin access is not allowed.'});
     reply.header('Cache-Control', 'no-store').header('Referrer-Policy', 'no-referrer').header('X-Content-Type-Options', 'nosniff');
     reply.header('Content-Security-Policy', "default-src 'self'; img-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
-    if (request.method === 'POST') {
+    if (request.method === 'POST' && !authenticated) {
       if (request.headers.origin && request.headers.origin !== `http://${host}`) return reply.code(403).send({ message: 'Use the local page.' });
       const supplied = Buffer.from(String(request.headers['x-playground-session'] ?? ''));
       const expected = Buffer.from(session);
@@ -124,7 +150,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
   server.setErrorHandler((e, _, reply) => reply.code((e as { statusCode?: number }).statusCode === 413 ? 413 : 400).send({ message: (e as { statusCode?: number }).statusCode === 413 ? 'Choose photos smaller than 25 MB each.' : 'Could not process that request. Check the input and try again.' }));
   server.get('/', async (_, reply) => reply.type('text/html').send((await readFile(resolve(directory, 'index.html'), 'utf8')).replace('__SESSION__', session)));
   server.get('/app.js', async (_, reply) => reply.type('text/javascript').send(await readFile(resolve(directory, 'app.js'), 'utf8')));
-  server.get('/search-utils.js', async (_, reply) => reply.type('text/javascript').send(await readFile(resolve(directory, 'search-utils.js'), 'utf8')));
+  server.get('/search-utils.js', async (_, reply) => reply.type('text/javascript').send(await readFile(resolve(directory, '../packages/core/src/strictness.js'), 'utf8')));
   server.get('/context', async () => ({memories:contextStore.list()}));
   server.post('/context/save', async (req,reply) => {
     if (searching) return reply.code(409).send({message:'Wait for this search to finish.'});
@@ -142,7 +168,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
     if (!photo) return reply.code(404).send({ message: 'Photo not found.' });
     return reply.type('image/jpeg').send(await readFile(resolve(datasetDir, `${photo.id}.jpg`)));
   });
-  server.get('/state', async () => ({ photos: photos.map(expose), datasetDir, configured: !!provider, indexing: !!task, searching, indexed: photos.filter(p => embeddingFor(p)).length, total: photos.length, current, error, imageCalls, queryCalls, dimensions: CONFIG[selected].dimensions, model: CONFIG[selected].model, provider: selected, providerLabel: CONFIG[selected].label, verificationModel: CONFIG[selected].vision, verificationCalls, contextCalls, identifyCalls, tagging, tagError }));
+  server.get('/state', async () => ({ protocol: 'captured-v2', datasetId, contextVersion: contextVersion(), photos: photos.map(expose), datasetDir, configured: !!provider, indexing: !!task, searching, indexed: photos.filter(p => embeddingFor(p)).length, total: photos.length, current, error: [datasetWarnings,error].filter(Boolean).join(' '), imageCalls, queryCalls, dimensions: CONFIG[selected].dimensions, model: CONFIG[selected].model, provider: selected, providerLabel: CONFIG[selected].label, verificationModel: CONFIG[selected].vision, verificationCalls, contextCalls, identifyCalls, tagging, tagError }));
   server.post('/scan', async (_, reply) => {
     if (task || uploading || searching || scanning) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
     scanning = true;
@@ -175,17 +201,21 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
     return { configured: true };
   });
   server.post('/disconnect', async (_, reply) => {
-    if (task || searching || tagTask) return reply.code(409).send({ message: 'Pause indexing and wait for Gemini to finish.' });
+    if (task || searching || tagTask) return reply.code(409).send({ message: 'Pause indexing and wait for the current model request to finish.' });
+
     provider = null; plans.clear(); resolvedQueries.clear(); queries.clear(); verifiedQueries.clear(); return { configured: false };
   });
-  server.post('/index', async (_, reply) => {
+  server.post('/index', async (req, reply) => {
     if (!provider) return reply.code(503).send({ message: 'Add a provider API key first.' });
     if (searching || uploading || scanning) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
-    if (task || photos.every(p => embeddingFor(p))) return { indexing: !!task };
+    const {photoIds} = z.object({photoIds:PhotoScope.optional()}).parse(req.body ?? {});
+    const scope = photoIds ? new Set(photoIds) : null;
+    const pending = photos.filter(p => (!scope || scope.has(p.id)) && !embeddingFor(p));
+    if (task || !pending.length) return { indexing: !!task };
     error = ''; pause = false;
     task = (async () => {
       try {
-        for (const p of photos.filter(p => !embeddingFor(p))) {
+        for (const p of pending) {
           if (pause) break;
           current = p.name;
           const bytes = await readFile(resolve(datasetDir, `${p.id}.jpg`));
@@ -195,7 +225,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
           await save({ ...p, embeddings });
           p.embeddings = embeddings;
         }
-      } catch (e) { error = providerError(e); }
+      } catch (e) { error = providerError(e,'photo analysis'); }
       finally { current = ''; task = null; }
     })();
     return reply.code(202).send({ indexing: true });
@@ -204,10 +234,12 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
   server.post('/search', async (req, reply) => {
     if (!provider) return reply.code(503).send({ message: 'Add a provider API key first.' });
     if (task || searching) return reply.code(409).send({ message: 'Wait for the current model request to finish.' });
-    const { query, verify, context: useContext, bindings } = z.object({ query: z.string().trim().min(1).max(1000), verify: z.boolean().default(false), context:z.boolean().default(false), bindings:z.record(z.string().max(100),z.string().uuid()).default({}) }).parse(req.body);
-    const indexed = photos.filter(p => embeddingFor(p));
+    const { query, verify, context: useContext, bindings, photoIds } = z.object({ photoIds: PhotoScope.optional(), query: z.string().trim().min(1).max(1000), verify: z.boolean().default(false), context:z.boolean().default(false), bindings:z.record(z.string().max(100),z.string().uuid()).default({}) }).parse(req.body);
+    const scope = photoIds ? new Set(photoIds) : null;
+    const indexed = photos.filter(p => embeddingFor(p) && (!scope || scope.has(p.id)));
     if (!indexed.length) return reply.code(400).send({ message: 'Analyze your photos first.' });
     searching = true;
+    let step = 'query interpretation';
     try {
       let plan:Plan = {visualQuery:query,references:[]};
       if (useContext) {
@@ -216,7 +248,8 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
         if (cachedPlan) plan = cachedPlan;
         else { contextCalls++; plan = PlanSchema.parse(await provider.plan(query)); if (plans.size >= 100) plans.delete(plans.keys().next().value!); plans.set(query,plan); }
       }
-      const resolution = resolveContext(plan,contextStore.list(),bindings);
+      const saved = contextStore.list();
+      const resolution = resolveContext(useContext ? withSavedReferences(plan,query,saved) : plan,saved,bindings);
       if (resolution.questions.length) return {needsClarification:true,query,questions:resolution.questions};
       const memories = [...new Map(resolution.resolved.map(r=>[r.memory.id,r.memory])).values()];
       const contextUsed = resolution.resolved.map(r=>({term:r.term,id:r.memory.id,name:r.memory.name,qualifier:r.memory.qualifier}));
@@ -226,7 +259,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
         const prepared = resolvedQueries.get(resolutionKey);
         if (prepared) embeddingQuery = prepared;
         else {
-          contextCalls++;
+          step = 'query enrichment'; contextCalls++;
           embeddingQuery = PlanSchema.parse(await provider.plan!(query,{entities:memories,bindings:contextUsed})).visualQuery;
           if (resolvedQueries.size >= 100) resolvedQueries.delete(resolvedQueries.keys().next().value!);
           resolvedQueries.set(resolutionKey,embeddingQuery);
@@ -234,6 +267,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
       }
       const cached = queries.has(embeddingQuery);
       let embedding = queries.get(embeddingQuery);
+      step = 'query embedding';
       if (!embedding) { queryCalls++; embedding = vector(await provider.text(embeddingQuery),CONFIG[selected].dimensions); if (queries.size >= 100) queries.delete(queries.keys().next().value!); queries.set(embeddingQuery, embedding); }
       const results = indexed.map(p => ({ ...expose(p), similarity: embeddingFor(p)!.reduce((sum,v,i) => sum + v * embedding![i], 0) })).sort((a,b) => b.similarity-a.similarity);
       if (!verify && !memories.length) return { results, cached, model: CONFIG[selected].model, verified: false, contextUsed };
@@ -242,7 +276,8 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
       // the shortlist, but never establish a match: the original query is checked below.
       const indexedById = new Map(indexed.map(p=>[p.id,p]));
       const linked = new Set(memories.flatMap(m=>m.photoIds));
-      const referenceVectors = memories.flatMap(m=>m.photoIds.slice(0,2)).map(id=>indexedById.get(id)).filter((p):p is Photo=>!!p).map(p=>embeddingFor(p)!);
+      const referencePhotos = new Map(photos.filter(p=>embeddingFor(p)).map(p=>[p.id,p]));
+      const referenceVectors = memories.flatMap(m=>m.photoIds.slice(0,2)).map(id=>referencePhotos.get(id)).filter((p):p is Photo=>!!p).map(p=>embeddingFor(p)!);
       const affinity = (id:string) => linked.has(id) ? 1 : Math.max(-1,...referenceVectors.map(v=>embeddingFor(indexedById.get(id)!)!.reduce((sum,x,i)=>sum+x*v[i],0)));
       const pool = memories.length ? results.map(p=>({...p,similarity:Math.max(p.similarity,affinity(p.id))})).sort((a,b)=>b.similarity-a.similarity) : results;
       const candidates = pool.slice(0,12);
@@ -251,7 +286,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
       const verificationCached = !!verification;
       if (!verification) {
         const images = await Promise.all(candidates.map(async p=>({id:p.id,bytes:await readFile(resolve(datasetDir,`${p.id}.jpg`))})));
-        verificationCalls++;
+        step = 'visual check'; verificationCalls++;
         const references = [];
         for (const m of memories) for (const id of m.photoIds.slice(0,2)) references.push({label:JSON.stringify({entityId:m.id,name:m.name,qualifier:m.qualifier}),bytes:await readFile(resolve(datasetDir,`${id}.jpg`))});
         const facts = {entities:memories,bindings:contextUsed,candidates:candidates.map(p=>({id:p.id,confirmedEntityIds:memories.filter(m=>m.photoIds.includes(p.id)).map(m=>m.id)}))};
@@ -265,7 +300,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; pro
       return { results: checked, cached, model: CONFIG[selected].model, verified:true, verificationCached, verificationModel: CONFIG[selected].vision,
         contextUsed, requirements:verification.requirements, checked:candidates.length, totalCandidates:results.length };
 
-    } catch (e) { return reply.code(502).send({ message: providerError(e) }); }
+    } catch (e) { return reply.code(502).send({ message: providerError(e,step) }); }
     finally { searching = false; }
   });
   // Trip pooling. A trip is an event memory with dates and members. Its photos are those captured within its dates

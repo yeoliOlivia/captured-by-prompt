@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "noUncheckedIndexedAccess": false,
+    "allowJs": true
+  },
+  "include": [
+    "playground/server.ts",
+    "playground/providers.ts",
+    "playground/context.ts",
+    "scripts/start-server.ts"
+  ]
+}

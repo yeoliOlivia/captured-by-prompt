@@ -1,12 +1,34 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { createPlaygroundServer } from './server';
-import { CONFIG, qwenProvider, validateVerification, verificationInstruction } from './providers';
+import { CONFIG, geminiProvider, qwenProvider, validateVerification, verificationInstruction } from './providers';
 const vec = (n:number,axis=0) => Array.from({length:n},(_,i)=>i===axis?1:0);
+afterEach(()=>vi.unstubAllGlobals());
 describe('provider isolation and visual checks',()=>{
+ it('serializes Gemini image, text, context and verification calls through the real SDK',async()=>{
+  const requests:{url:string;body:any}[]=[];
+  vi.stubGlobal('fetch',vi.fn(async(url:any,init:any)=>{
+   const body=JSON.parse(init.body);requests.push({url:String(url),body});
+   const data=String(url).includes('EmbedContent')||String(url).includes('embedContent')
+    ? {embedding:{values:vec(3072)},embeddings:[{values:vec(3072)}]}
+    : {candidates:[{content:{role:'model',parts:[{text:JSON.stringify(requests.length===3?{visualQuery:'tennis',references:[]}:{requirements:['grass'],results:[{id:'a',checks:[{status:'pass',evidence:'Visible grass'}]}]})}]},finishReason:'STOP'}]};
+   return new Response(JSON.stringify(data),{headers:{'content-type':'application/json'}});
+  }));
+  const provider=geminiProvider('fake-key-for-offline-contract-test');
+  expect(await provider.image(Buffer.from('pixels'))).toHaveLength(3072);
+  expect(await provider.text('tennis on grass')).toHaveLength(3072);
+  expect(await provider.plan!('tennis')).toMatchObject({references:[]});
+  await provider.verify!('tennis on grass',[{id:'a',bytes:Buffer.from('pixels')}]);
+  expect(requests).toHaveLength(4);
+  expect(JSON.stringify(requests[0].body)).toContain('cGl4ZWxz');
+  expect(JSON.stringify(requests[0].body)).toContain('3072');
+  expect(JSON.stringify(requests[1].body)).toContain('tennis on grass');
+  expect(requests[2].url).toContain(CONFIG.gemini.vision);
+  expect(JSON.stringify(requests[3].body)).toContain('image/jpeg');
+ });
  it('preserves indexes, verifies all conditions, caches checks and rejects incomplete assessments',async()=>{
   const datasetDir = await mkdtemp(join(tmpdir(),'captured-providers-'));
   const calls = {gemini:0,qwen:0,verification:0};

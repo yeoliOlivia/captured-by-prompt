@@ -10,7 +10,7 @@ export default function PhotoDetail() {
   const photo = library.photos.find(p => p.id === id);
   const { width, height } = useWindowDimensions();
   if (!photo) return <View style={{ padding: 24 }}><Notice text="This photo is no longer in your collection." /><Button label="Back to collection" onPress={() => router.replace('/')} /></View>;
-  const remove = () => Alert.alert('Remove this photo?', 'Delete its imported copy and search data from this app. The original in your camera roll is unchanged.', [
+  const remove = () => Alert.alert('Remove this photo?', 'Remove this phone’s app copy. Your Apple Photos original and workspace copy remain.', [
     { text: 'Keep photo', style: 'cancel' }, { text: 'Remove', style: 'destructive', onPress: () => { void library.remove(id).then(() => router.back()); } },
   ]);
   return <ScrollView style={{ backgroundColor: colors.background }} contentContainerStyle={{ paddingBottom: 40 }}>
@@ -20,15 +20,11 @@ export default function PhotoDetail() {
     <View style={s.content}>
       <Text style={common.label}>YOUR SELECTED PHOTO · PINCH TO ZOOM</Text>
       <Text style={s.title}>{photo.capturedAt ? `Captured ${photo.capturedAt}` : 'A moment worth finding'}</Text>
-      <Text style={common.body}>{photo.width} × {photo.height} · {photo.status === 'ready' ? 'Searchable' : photo.status === 'indexing' ? 'Indexing now' : 'Not indexed yet'}</Text>
+      <Text style={common.body}>{photo.width} × {photo.height} · {photo.indexed ? 'Searchable' : photo.status === 'indexing' ? 'Indexing now' : 'Not indexed yet'}</Text>
       {!photo.capturedAt && <Text style={s.small}>Capture date was not available from this selection.</Text>}
       {photo.error && <Notice text={photo.error} />}
-      {photo.analysis && <>
-        <View style={s.divider} /><Text style={common.label}>WHAT SEARCH CAN SEE</Text>
-        <Text style={common.body}>{photo.analysis.description}</Text>
-        {!!photo.analysis.visibleText && <><Text style={common.label}>TEXT IN THIS PHOTO</Text><Text style={common.body}>{photo.analysis.visibleText}</Text></>}
-        <Text style={s.small}>AI-generated details can be incomplete or incorrect.</Text>
-      </>}
+      <Text style={s.small}>Search uses image pixels, without generated captions. {photo.assetId ? 'The original Photos asset identifier is retained on this phone.' : 'Photos did not provide an original asset identifier for this selection.'}</Text>
+      <Button label="Photos actions" onPress={()=>{library.setSelection([photo]);router.push('/selection');}} disabled={Boolean(library.activity)} />
       <Button label="Remove from collection" secondary icon="trash-outline" onPress={remove} disabled={Boolean(library.activity)} />
     </View>
   </ScrollView>;

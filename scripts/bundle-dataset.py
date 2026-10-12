@@ -14,6 +14,8 @@ ID = re.compile(r'^[a-f0-9]{64}$')
 
 
 def records(source, expected):
+    if type(expected) is not int or not 1 <= expected <= 10000:
+        raise ValueError('Expected count must be between 1 and 10,000 photos.')
     result, pending = [], 0
     for path in sorted(source.glob('*.json')):
         if not ID.fullmatch(path.stem):
@@ -89,8 +91,10 @@ Original image rights remain with their respective owners. Only resized copies a
 def verify(path):
     with zipfile.ZipFile(path) as archive:
         manifest = json.loads(archive.read('BUNDLE.json'))
-        if manifest.get('format') != 'captured-dataset-v1':
+        if manifest.get('format') != 'captured-dataset-v1' or manifest.get('model') != MODEL or manifest.get('dimensions') != DIMENSIONS:
             raise ValueError('Unsupported bundle format')
+        if type(manifest.get('photos')) is not int or not 1 <= manifest['photos'] <= 10000 or not isinstance(manifest.get('files'), dict):
+            raise ValueError('Invalid bundle manifest')
         names = archive.namelist()
         if len(names) != len(set(names)) or set(names) != set(manifest['files']) | {'BUNDLE.json', 'BUNDLE-README.txt'}:
             raise ValueError('Unexpected or duplicate archive entries')
@@ -101,6 +105,24 @@ def verify(path):
                 raise ValueError('Invalid archive path')
             if hashlib.sha256(archive.read(name)).hexdigest() != checksum:
                 raise ValueError(f'Checksum mismatch: {name}')
+        images = {name[:-4] for name in manifest['files'] if name.endswith('.jpg')}
+        records = {name[:-5] for name in manifest['files'] if name.endswith('.json')}
+        if images != records or len(images) != manifest['photos']:
+            raise ValueError('Every photo needs its matching embedding record')
+        for stem in sorted(images):
+            photo_id = stem.rsplit('/', 1)[1]
+            if hashlib.sha256(archive.read(stem + '.jpg')).hexdigest() != photo_id:
+                raise ValueError('Image ID does not match its content')
+            record = json.loads(archive.read(stem + '.json'))
+            if not isinstance(record, dict) or set(record) != {'id', 'name', 'embeddings'} or record.get('id') != photo_id or not isinstance(record.get('name'), str):
+                raise ValueError('Invalid photo record')
+            embeddings = record.get('embeddings')
+            key = f'{MODEL}:{DIMENSIONS}'
+            if not isinstance(embeddings, dict) or set(embeddings) != {key}:
+                raise ValueError('Invalid embedding model')
+            values = embeddings[key]
+            if not isinstance(values, list) or len(values) != DIMENSIONS or not all(type(v) in (int, float) and math.isfinite(v) for v in values) or not any(values):
+                raise ValueError('Invalid embedding vector')
     print(f'Verified: {manifest["photos"]} photos and embeddings, all checksums intact.')
 
 

@@ -51,5 +51,27 @@ class BundleTests(unittest.TestCase):
             for entry in source.namelist():
                 target.writestr(entry,b'changed' if entry.endswith('.jpg') else source.read(entry))
         with self.assertRaises(ValueError):bundle.verify(broken)
+    def test_rejects_semantically_invalid_records_even_with_matching_checksums(self):
+        bundle.export(self.source,self.output,1)
+        for kind in ['vector', 'model', 'id', 'unpaired', 'private-field']:
+            with self.subTest(kind=kind):
+                with zipfile.ZipFile(self.output) as source:
+                    contents={name:source.read(name) for name in source.namelist()}
+                name=f'sample-dataset/{self.id}.json'
+                record=json.loads(contents[name])
+                manifest=json.loads(contents['BUNDLE.json'])
+                if kind=='vector':record['embeddings'][f'{bundle.MODEL}:3072']=[0.0]*3072
+                if kind=='id':record['id']='f'*64
+                if kind=='private-field':record['apiKey']='must-not-import'
+                contents[name]=json.dumps(record).encode()
+                if kind=='model':manifest['model']='wrong-model'
+                if kind=='unpaired':
+                    contents[f'sample-dataset/{"f"*64}.json']=contents.pop(name)
+                manifest['files']={name:hashlib.sha256(data).hexdigest() for name,data in contents.items() if name.startswith('sample-dataset/')}
+                contents['BUNDLE.json']=json.dumps(manifest).encode()
+                broken=self.root/(kind+'.zip')
+                with zipfile.ZipFile(broken,'w') as target:
+                    for name,data in contents.items():target.writestr(name,data)
+                with self.assertRaises(ValueError):bundle.verify(broken)
 
 if __name__=='__main__':unittest.main()

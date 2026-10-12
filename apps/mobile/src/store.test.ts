@@ -25,11 +25,19 @@ beforeEach(() => { vi.resetModules(); state.db = new DatabaseSync(':memory:'); }
 afterEach(() => state.db?.close());
 
 describe('persistent index SQL (real SQLite, Expo bridge substituted)', () => {
-  it('rejects a 31st photo atomically', async () => {
+  it('keeps photos and workspace links readable when obsolete analysis JSON is damaged',async()=>{
+    const {store}=await import('./store');await store.add([photo('old')]);await store.link('old','workspace','remote');
+    state.db!.prepare("UPDATE photos SET status = 'ready', analysis = ? WHERE id = ?").run('{broken','old');
+    expect(await store.list()).toMatchObject([{id:'old',status:'pending',analysis:null}]);
+    expect(await store.links('workspace')).toEqual({old:'remote'});
+  });
+  it('accepts more than 30 photos and rejects exceeding the shared collection limit atomically', async () => {
     const { store } = await import('./store');
     await store.add(Array.from({ length: 30 }, (_, i) => photo(String(i), { status: 'pending', analysis: null })));
-    await expect(store.add([photo('31')])).rejects.toThrow('30');
-    expect(await store.list()).toHaveLength(30);
+    await store.add([photo('31')]);
+    expect(await store.list()).toHaveLength(31);
+    await expect(store.add(Array.from({length:10000},(_,i)=>photo('extra'+i)))).rejects.toThrow('10000');
+    expect(await store.list()).toHaveLength(31);
   });
   it('retains completed analysis across reloads and recovers an interrupted photo', async () => {
     const { store } = await import('./store');
@@ -49,6 +57,24 @@ describe('persistent index SQL (real SQLite, Expo bridge substituted)', () => {
     expect(await store.get('a')).toBeNull(); expect(await store.cached('search')).toBeNull();
     await store.cache('search', query(), null);
     await store.add([photo('c')]); expect(await store.cached('search')).toBeNull();
+  });
+  it('persists workspace-specific photo links without confusing different datasets',async()=>{
+    const {store}=await import('./store');await store.add([photo('a')]);
+    await store.link('a','workspace-one','remote-one');await store.link('a','workspace-two','remote-two');
+    vi.resetModules();const restarted=(await import('./store')).store;
+    expect(await restarted.links('workspace-one')).toEqual({a:'remote-one'});
+    expect(await restarted.links('workspace-two')).toEqual({a:'remote-two'});
+    expect(await restarted.links('new-workspace')).toEqual({});
+    await restarted.remove('a');expect(await restarted.links('workspace-one')).toEqual({});
+  });
+  it('cleans up every local copy of confirmed deleted originals and preserves unrelated photos',async()=>{
+    const {store}=await import('./store');
+    await store.add([photo('a',{assetId:'original'}),photo('duplicate',{assetId:'original'}),photo('keep',{assetId:'other'})]);
+    await store.link('a','workspace','server-a');await store.link('keep','workspace','server-keep');
+    const removed=await store.removeByAssets(['original']);
+    expect(removed.map(p=>p.id).sort()).toEqual(['a','duplicate']);
+    expect((await store.list()).map(p=>p.id)).toEqual(['keep']);
+    expect(await store.links('workspace')).toEqual({keep:'server-keep'});
   });
   it('clears photos and derived data without deleting connection settings', async () => {
     const { store } = await import('./store');

@@ -13,9 +13,11 @@ export type PersonReference = { personId: string; references: Buffer[] };
 export type Provider = { plan?(query: string, facts?: unknown): Promise<unknown>; image(bytes: Buffer): Promise<number[]>; text(query: string): Promise<number[]>; verify?(query: string, photos: Candidate[], context?: VerificationContext): Promise<unknown>; identify?(photos: Candidate[], people: PersonReference[]): Promise<unknown> };
 export function vector(values: unknown, dimensions = 3072): number[] {
   const result = z.array(z.number().finite()).length(dimensions).parse(values);
-  const norm = Math.hypot(...result);
-  if (!norm) throw new Error('Invalid embedding');
-  return result.map(v => v / norm);
+  const scale = Math.max(...result.map(Math.abs));
+  if (!scale) throw new Error('Invalid embedding');
+  const scaled = result.map(v => v / scale);
+  const norm = Math.hypot(...scaled);
+  return scaled.map(v => v / norm);
 }
 const VerdictSchema = z.object({
   requirements: z.array(z.string().min(1).max(500)).min(1).max(16),
@@ -60,7 +62,9 @@ export function geminiProvider(key: string): Provider {
       const parts: any[] = [{text:JSON.stringify({searchQuery:query})}];
       if (context) { parts.push({text:'PERSONAL CONTEXT: '+JSON.stringify(context.facts)}); for (const r of context.references) parts.push({text:'REFERENCE ONLY: '+r.label},{inlineData:{mimeType:'image/jpeg',data:r.bytes.toString('base64')}}); }
       for (const p of photos) parts.push({text:`Image ID: ${p.id}`},{inlineData:{mimeType:'image/jpeg',data:p.bytes.toString('base64')}});
-      const result = await client.models.generateContent({model:config.vision,contents:[{role:'user',parts}],config:{systemInstruction:verificationInstruction+(context ? personalInstruction : ''),responseMimeType:'application/json',responseJsonSchema:z.toJSONSchema(VerdictSchema),maxOutputTokens:12000}});
+      // Gemini rejects VerdictSchema as a response schema (400 INVALID_ARGUMENT, checked live), so the
+      // instruction carries the format and validateVerification enforces it, as with Qwen.
+      const result = await client.models.generateContent({model:config.vision,contents:[{role:'user',parts}],config:{systemInstruction:verificationInstruction+(context ? personalInstruction : ''),responseMimeType:'application/json',maxOutputTokens:12000}});
       return JSON.parse(result.text ?? '');
     },
     identify: async (photos,people) => {

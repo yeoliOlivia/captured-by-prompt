@@ -15,7 +15,7 @@ const post = (url: string, payload: any = {}) => server.inject({method:'POST',ur
 const state = async () => (await server.inject({url:'/state',headers:{host:'localhost'}})).json();
 await connectPage();
 assert.equal((await server.inject({method:'POST',url:'/connect',headers:{host:'localhost'},payload:{key:'x'.repeat(24)}})).statusCode,403);
-assert.equal((await server.inject({url:'/state',headers:{host:'evil.example'}})).statusCode,403);
+assert.equal((await server.inject({url:'/state',headers:{host:'evil.example'}})).statusCode,401);
 assert.equal((await post('/search',{query:'test'})).statusCode,503);
 const bytes = await sharp({create:{width:1500,height:1000,channels:3,background:'#ff0000'}}).png().toBuffer();
 const upload = (bytes: Buffer) => server.inject({method:'POST',url:'/upload',headers:{host:'localhost','x-playground-session':token,'content-type':'application/octet-stream','x-file-name':'misleading-cat.jpg'},payload:bytes});
