@@ -1,16 +1,26 @@
 import Fastify from 'fastify';
-import { CONFIG, geminiProvider, qwenProvider, vector, validateVerification, type Provider, type ProviderName } from './providers.js';
+import { CONFIG, geminiProvider, qwenProvider, vector, validateIdentification, validateVerification, type Provider, type ProviderName } from './providers.js';
+import { readPhotoMetadata } from './exif.js';
 export { geminiProvider } from './providers.js';
 import sharp from 'sharp';
-import { openContext, PlanSchema, resolveContext, withSavedReferences, type Plan } from './context.js';
+import { matches, openContext, PlanSchema, resolveContext, withSavedReferences, type Memory, type Plan, type PhotoTag } from './context.js';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename, readdir, stat } from 'node:fs/promises';
 import { resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 const directory = fileURLToPath(new URL('.', import.meta.url));
+
 import { COLLECTION_LIMIT as PHOTO_LIMIT, PhotoScope } from '@captured/core/current';
-type Photo = { id: string; name: string; embedding?: number[]; model?: string; embeddings?: Record<string,number[]>; source?: { path: string; size: number; mtimeMs: number } };
+// capturedAt: EXIF local capture time. place: coarse location (about 1 km). contributor: whose phone it came from,
+// taken from <trip folder>/<person>/... under sample-dataset. metadataVersion marks records that have been read.
+type Photo = { id: string; name: string; embedding?: number[]; model?: string; embeddings?: Record<string,number[]>; source?: { path: string; size: number; mtimeMs: number };
+  capturedAt?: string | null; place?: { lat: number; lon: number } | null; contributor?: string | null; metadataVersion?: number };
+const METADATA_VERSION = 1;
+const TAG_BATCH = 12;
+const contributorOf = (sourcePath: string) => { const parts = sourcePath.split(/[\\/]/); return parts.length >= 3 ? parts[1].slice(0,100) : null; };
+const safeName = (s: string) => s.replace(/[^\p{L}\p{N} ._-]/gu,'').replace(/^[ .]+/,'').trim().slice(0,80) || 'untitled';
+const tripDay = (p: Photo) => p.capturedAt?.slice(0,10) ?? '';
 function providerError(e: unknown, step = '') {
   const status = Number((e as any)?.status ?? (e as any)?.statusCode);
   // Keys travel in headers, never in messages; this shows the provider's real reason in the terminal.
@@ -75,12 +85,20 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
           const info = await stat(path);
           const source = { path: relative(datasetDir, path), size: info.size, mtimeMs: info.mtimeMs };
           const previous = sources.get(source.path);
-          if (previous && previous.size === source.size && previous.mtimeMs === source.mtimeMs) continue;
+          if (previous && previous.size === source.size && previous.mtimeMs === source.mtimeMs) {
+            // Records imported before capture metadata was kept: read it from the unchanged original.
+            const existing = photos.find(p => p.source?.path === source.path);
+            if (existing && existing.metadataVersion !== METADATA_VERSION) {
+              Object.assign(existing, await readPhotoMetadata(path), { contributor: contributorOf(source.path), metadataVersion: METADATA_VERSION });
+              await save(existing);
+            }
+            continue;
+          }
           const bytes = await sharp(path, { limitInputPixels: 80_000_000 }).rotate()
             .resize(1024,1024,{fit:'inside',withoutEnlargement:true}).flatten({ background: '#ffffff' }).jpeg({ quality: 90 }).toBuffer();
           const id = createHash('sha256').update(bytes).digest('hex');
           if (photos.some(p => p.id === id)) continue;
-          const photo: Photo = { id, name: entry.name, source };
+          const photo: Photo = { id, name: entry.name, source, ...await readPhotoMetadata(path), contributor: contributorOf(source.path), metadataVersion: METADATA_VERSION };
           await writeFile(resolve(datasetDir, `${id}.jpg`), bytes);
           await save(photo); photos.push(photo); added++;
         } catch { skipped.push(entry.name); }
@@ -110,7 +128,8 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
   let imageCalls = 0, queryCalls = 0, verificationCalls = 0;
   const verifiedQueries = new Map<string, ReturnType<typeof validateVerification>>();
   const queries = new Map<string, number[]>();
-  const expose = (p: Photo) => ({ id: p.id, name: p.name, image: `/photos/${p.id}`, indexed: !!embeddingFor(p) });
+  const expose = (p: Photo) => ({ id: p.id, name: p.name, image: `/photos/${p.id}`, indexed: !!embeddingFor(p), capturedAt: p.capturedAt ?? null, contributor: p.contributor ?? null });
+  let tagTask: Promise<void> | null = null, tagging: { tripId: string; done: number; total: number } | null = null, tagError = '', identifyCalls = 0;
   server.addHook('onRequest', async (request, reply) => {
     const host = request.headers.host ?? '';
     const local = /^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host) && ['127.0.0.1','::1','::ffff:127.0.0.1'].includes(request.ip);
@@ -149,7 +168,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
     if (!photo) return reply.code(404).send({ message: 'Photo not found.' });
     return reply.type('image/jpeg').send(await readFile(resolve(datasetDir, `${photo.id}.jpg`)));
   });
-  server.get('/state', async () => ({ protocol: 'captured-v2', datasetId, contextVersion: contextVersion(), photos: photos.map(expose), datasetDir, configured: !!provider, indexing: !!task, searching, indexed: photos.filter(p => embeddingFor(p)).length, total: photos.length, current, error: [datasetWarnings,error].filter(Boolean).join(' '), imageCalls, queryCalls, dimensions: CONFIG[selected].dimensions, model: CONFIG[selected].model, provider: selected, providerLabel: CONFIG[selected].label, verificationModel: CONFIG[selected].vision, verificationCalls, contextCalls }));
+  server.get('/state', async () => ({ protocol: 'captured-v2', datasetId, contextVersion: contextVersion(), photos: photos.map(expose), datasetDir, configured: !!provider, indexing: !!task, searching, indexed: photos.filter(p => embeddingFor(p)).length, total: photos.length, current, error: [datasetWarnings,error].filter(Boolean).join(' '), imageCalls, queryCalls, dimensions: CONFIG[selected].dimensions, model: CONFIG[selected].model, provider: selected, providerLabel: CONFIG[selected].label, verificationModel: CONFIG[selected].vision, verificationCalls, contextCalls, identifyCalls, tagging, tagError }));
   server.post('/scan', async (_, reply) => {
     if (task || uploading || searching || scanning) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
     scanning = true;
@@ -168,21 +187,22 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
       if (existing) return { photo: expose(existing), duplicate: true };
       if (photos.length >= PHOTO_LIMIT) return reply.code(400).send({ message: 'This collection supports up to 10,000 photos.' });
       const name = decodeURIComponent(String(req.headers['x-file-name'] ?? 'Photo')).replace(/[\x00-\x1f]/g, '').slice(0,200) || 'Photo';
-      const photo: Photo = { id, name };
+      const photo: Photo = { id, name, ...await readPhotoMetadata(req.body), contributor: null, metadataVersion: METADATA_VERSION };
       await writeFile(resolve(datasetDir, `${id}.jpg`), bytes);
       await save(photo); photos.push(photo);
       return { photo: expose(photo), duplicate: false };
     } finally { uploading = false; }
   });
   server.post('/connect', async (req, reply) => {
-    if (task || searching) return reply.code(409).send({ message: 'Wait for the current model request to finish.' });
+    if (task || searching || tagTask) return reply.code(409).send({ message: 'Wait for the current model request to finish.' });
     const { key, provider: name } = z.object({ key: z.string().trim().min(20).max(8192), provider: z.enum(['gemini','qwen']).default('gemini') }).parse(req.body);
     if (/\s/.test(key)) return reply.code(400).send({ message: 'Paste only the API key.' });
     provider = options.providerFactory ? options.providerFactory(key,name) : name === 'qwen' ? qwenProvider(key) : geminiProvider(key); selected = name; plans.clear(); resolvedQueries.clear(); queries.clear(); verifiedQueries.clear(); error = '';
     return { configured: true };
   });
   server.post('/disconnect', async (_, reply) => {
-    if (task || searching) return reply.code(409).send({ message: 'Pause indexing and wait for the current model request to finish.' });
+    if (task || searching || tagTask) return reply.code(409).send({ message: 'Pause indexing and wait for the current model request to finish.' });
+
     provider = null; plans.clear(); resolvedQueries.clear(); queries.clear(); verifiedQueries.clear(); return { configured: false };
   });
   server.post('/index', async (req, reply) => {
@@ -283,7 +303,109 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
     } catch (e) { return reply.code(502).send({ message: providerError(e,step) }); }
     finally { searching = false; }
   });
-  server.addHook('onClose', async () => { pause = true; if (task) await task; provider = null; contextStore.close(); });
+  // Trip pooling. A trip is an event memory with dates and members. Its photos are those captured within its dates
+  // (EXIF local time) plus photos explicitly linked to the event. One vision request checks up to 12 photos for all
+  // members at once; results are cached per photo, person revision, and model.
+  function tripOf(id: string) {
+    const all = contextStore.list();
+    const trip = all.find(m => m.id === id && m.kind === 'event');
+    if (!trip) return null;
+    const members = trip.memberIds.map(mid => all.find(m => m.id === mid)).filter((m): m is Memory => !!m);
+    const linked = new Set(trip.photoIds);
+    const inTrip = photos.filter(p => linked.has(p.id) || (!!trip.startDate && !!trip.endDate && tripDay(p) >= trip.startDate && tripDay(p) <= trip.endDate));
+    return { trip, members, photos: inTrip };
+  }
+  const visionModel = () => CONFIG[selected].vision;
+  const currentTags = (photoIds: string[], members: Memory[]) => {
+    const revisions = new Map(members.map(m => [m.id, m.revision]));
+    return contextStore.tags(photoIds, visionModel()).filter(t => revisions.get(t.memoryId) === t.revision);
+  };
+  const pendingPhotos = (trip: NonNullable<ReturnType<typeof tripOf>>) => {
+    const done = new Set(currentTags(trip.photos.map(p => p.id), trip.members).map(t => `${t.photoId}:${t.memoryId}`));
+    return trip.photos.filter(p => trip.members.some(m => !done.has(`${p.id}:${m.id}`)));
+  };
+  // Photos taken on a member's own phone are not suggested back to them.
+  const ownPhoto = (member: Memory, p: Photo) => !!p.contributor && matches(member, p.contributor);
+  server.get('/trips/:id', async (req, reply) => {
+    const found = tripOf((req.params as any).id);
+    if (!found) return reply.code(404).send({ message: 'Trip not found.' });
+    const { trip, members, photos: inTrip } = found;
+    const byId = new Map(inTrip.map(p => [p.id, p]));
+    const tags = currentTags(inTrip.map(p => p.id), members);
+    const linked = new Set(trip.photoIds);
+    return {
+      trip: { id: trip.id, name: trip.name, qualifier: trip.qualifier, startDate: trip.startDate, endDate: trip.endDate },
+      photos: inTrip.length, pending: pendingPhotos(found).length,
+      undated: photos.filter(p => !p.capturedAt && !linked.has(p.id)).length,
+      contributors: [...new Set(inTrip.map(p => p.contributor).filter(Boolean))],
+      tagging: tagging?.tripId === trip.id ? tagging : null, error: tagError,
+      members: members.map(m => {
+        const pick = (status: PhotoTag['status']) => tags.filter(t => t.memoryId === m.id && t.status === status).map(t => byId.get(t.photoId)!)
+          .filter(p => !ownPhoto(m, p)).map(p => ({ ...expose(p), evidence: tags.find(t => t.photoId === p.id && t.memoryId === m.id)!.evidence }));
+        return { id: m.id, name: m.name, qualifier: m.qualifier, suggested: pick('present'), uncertain: pick('uncertain') };
+      }),
+    };
+  });
+  server.post('/trips/:id/tag', async (req, reply) => {
+    if (!provider) return reply.code(503).send({ message: 'Add a provider API key first.' });
+    if (!provider.identify) return reply.code(400).send({ message: 'This provider cannot check who is in photos.' });
+    if (tagTask) return reply.code(409).send({ message: 'Already checking trip photos.' });
+    const found = tripOf((req.params as any).id);
+    if (!found) return reply.code(404).send({ message: 'Trip not found.' });
+    if (!found.members.length) return reply.code(400).send({ message: 'Add people to this trip first.' });
+    const pending = pendingPhotos(found);
+    if (!pending.length) return { tagging: false };
+    const active = provider, model = visionModel(), members = found.members;
+    tagError = ''; tagging = { tripId: found.trip.id, done: 0, total: pending.length };
+    tagTask = (async () => {
+      try {
+        const people = await Promise.all(members.map(async (m, i) => ({ personId: `P${i + 1}`,
+          references: await Promise.all(m.photoIds.slice(0, 2).map(id => readFile(resolve(datasetDir, `${id}.jpg`)))) })));
+        for (let i = 0; i < pending.length; i += TAG_BATCH) {
+          const batch = pending.slice(i, i + TAG_BATCH);
+          const images = await Promise.all(batch.map(async p => ({ id: p.id, bytes: await readFile(resolve(datasetDir, `${p.id}.jpg`)) })));
+          identifyCalls++;
+          const results = validateIdentification(await active.identify!(images, people), batch.map(p => p.id), people.map(p => p.personId));
+          contextStore.saveTags(results.flatMap(r => r.people.map(p => {
+            const member = members[Number(p.personId.slice(1)) - 1];
+            return { photoId: r.id, memoryId: member.id, model, revision: member.revision, status: p.status, evidence: p.evidence };
+          })));
+          tagging!.done += batch.length;
+        }
+      } catch (e) { tagError = e instanceof z.ZodError || (e as Error).message === 'Incomplete identification' ? 'The model returned an incomplete answer. Completed photos are saved; try again.' : providerError(e); }
+      finally { tagTask = null; tagging = null; }
+    })();
+    return reply.code(202).send({ tagging: true, photos: pending.length, requests: Math.ceil(pending.length / TAG_BATCH) });
+  });
+  // Writes the suggested photos for one member into sample-dataset/.exports/<trip>/<member>/ for the user to review
+  // and send. Uses the original file when it is still available (full resolution), otherwise the stored copy.
+  // All metadata is removed except the capture time; location is never written.
+  server.post('/trips/:id/export', async (req, reply) => {
+    const { memberId, includeUncertain } = z.object({ memberId: z.string().uuid(), includeUncertain: z.boolean().default(false) }).parse(req.body);
+    const found = tripOf((req.params as any).id);
+    if (!found) return reply.code(404).send({ message: 'Trip not found.' });
+    const member = found.members.find(m => m.id === memberId);
+    if (!member) return reply.code(404).send({ message: 'This person is not on the trip.' });
+    const statuses = new Set(includeUncertain ? ['present', 'uncertain'] : ['present']);
+    const chosen = new Set(currentTags(found.photos.map(p => p.id), [member]).filter(t => statuses.has(t.status)).map(t => t.photoId));
+    const selection = found.photos.filter(p => chosen.has(p.id) && !ownPhoto(member, p));
+    const folder = resolve(datasetDir, '.exports', safeName(found.trip.name), safeName(`${member.name} ${member.qualifier}`));
+    await mkdir(folder, { recursive: true });
+    let originals = 0;
+    for (const p of selection) {
+      let input: string = resolve(datasetDir, `${p.id}.jpg`);
+      if (p.source) {
+        const original = resolve(datasetDir, p.source.path);
+        const info = await stat(original).catch(() => null);
+        if (info && info.size === p.source.size && info.mtimeMs === p.source.mtimeMs) { input = original; originals++; }
+      }
+      let image = sharp(input, { limitInputPixels: 80_000_000 }).rotate().flatten({ background: '#ffffff' });
+      if (p.capturedAt) image = image.withExif({ IFD0: { DateTime: p.capturedAt.slice(0,19).replace('T',' ').replace(/-/g,':') } });
+      await writeFile(resolve(folder, `${tripDay(p) || 'undated'}-${p.id.slice(0,12)}.jpg`), await image.jpeg({ quality: 92 }).toBuffer());
+    }
+    return { folder, written: selection.length, originals, copies: selection.length - originals };
+  });
+  server.addHook('onClose', async () => { pause = true; if (task) await task; if (tagTask) await tagTask.catch(() => {}); provider = null; contextStore.close(); });
   return server;
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

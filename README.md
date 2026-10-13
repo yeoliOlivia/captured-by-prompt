@@ -56,6 +56,27 @@ The browser app uses Gemini Embedding 2 at **3,072 dimensions** (or a separate h
 - After resolution, one additional cached generation request translates relevant confirmed facts into a visual search query (for example, “my old apartment” plus “red kitchen”). Personal searches retrieve candidates using that grounded visual query and the first two reference-image embeddings per entity, then check the top 12 against the **original** query and relevant confirmed facts. Up to two reference images per entity are sent to the vision model. Saved reference-photo associations are supplied as confirmed evidence. Unrelated memories are not sent. The model cannot create or edit memories automatically.
 - Review, edit, and delete memories in **My context**. Stale edits are rejected rather than overwriting another tab's changes. Editing/deleting invalidates cached visual checks. The app is currently a **single-owner local prototype**, not a multi-account service.
 
+### Trip photo pooling (browser app)
+
+After a trip, find the photos on each friend's phone that include the other friends, and prepare a folder of them per person. This supports a manual trip test run by one organizer on one machine; nothing is sent to anyone.
+
+1. Put each person's trip photos in `sample-dataset/<trip>/<person>/` (for example `sample-dataset/tahoe/alex/`), then click **Reload photo folders**. The `<person>` folder name records whose phone a photo came from.
+2. Under **My context**, add each friend as a person with clear reference photos. The folder name should match the person's name or an alias.
+3. Add the trip as a **Trip or event** with start and end dates, and tick its members.
+4. Open **Trip photo pooling**, choose the trip, and click **Find people in trip photos**.
+5. Review each person's suggestions and click **Export for <name>**.
+
+How it works:
+
+- On import, capture time (EXIF `DateTimeOriginal`, with its time-zone offset when recorded) and a coarse location are read from the original file before it is re-encoded. Exact GPS is never stored. Existing folder imports are filled in on the next scan; earlier browser uploads cannot be, because their originals were not kept.
+- Trip photos are those captured between the trip's dates (local camera time, inclusive) plus any photos chosen on the trip memory. Photos without a capture date are counted but not included automatically; choose them on the trip memory to include them.
+- One vision request checks up to 12 trip photos for all members at once, using up to two reference photos per member. People are labelled P1, P2 and so on, so names and relationships are not sent for this step. Each answer is present, absent, or uncertain with visible evidence. Results are saved in `.context.sqlite` per photo, person revision, and vision model, so rerunning costs nothing, and editing one person's reference photos re-checks only what is missing for them.
+- A person is not suggested photos taken on their own phone. Uncertain matches are listed separately and exported only when chosen.
+- Export writes `sample-dataset/.exports/<trip>/<person>/`. It uses the full-size original when the source file is unchanged, otherwise the stored 1,024-pixel copy. All metadata is removed except the capture time. Review the folder before sending it.
+- A person who is a trip member cannot be deleted until they are removed from the trip.
+
+Limits: identity comes from fallible vision-model judgments on whole images, not a face index; small, turned, or similar-looking people are often uncertain. Messaging apps often strip capture dates, so received copies may need to be added to the trip by hand.
+
 Context persists in `sample-dataset/.context.sqlite` (SQLite, owner-only permissions), independently of embeddings. It is ignored by Git and excluded from portable photo/embedding bundles. Back up personal context separately with the server stopped (or use SQLite's backup facilities). API keys remain in memory and are never stored in this database. Requires Node 22.13+ with `node:sqlite` support.
 
 **Current limits:** this is explicit memory retrieval plus model interpretation, not LoRA training or a dedicated face-recognition index. Whole-image similarity suggests candidates; it is not identity confidence. Personal-search scores are the maximum similarity to the visual query or a reference image, so calibrate thresholds separately from ordinary searches. Only the selected shortlist is visually checked; missing a candidate at retrieval cannot be fixed by verification. Dates are retained as facts, but this image-copy pipeline currently strips capture metadata, so it cannot enforce capture-date constraints. The verifier must report uncertainty when the available evidence cannot establish a personal or temporal match. Relationships can be recorded as facts/aliases; structured relationship history, face crops/clustering, capture metadata, preference learning, and full-library synchronization remain future work.
