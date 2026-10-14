@@ -126,6 +126,51 @@ def verify(path):
     print(f'Verified: {manifest["photos"]} photos and embeddings, all checksums intact.')
 
 
+
+def restore(bundle_path, destination):
+    # Validate the entire archive before writing anything into the collection.
+    verify(bundle_path)
+    destination.mkdir(parents=True, exist_ok=True)
+    key = f'{MODEL}:{DIMENSIONS}'
+    restored = 0
+    def valid(values):
+        return (isinstance(values, list) and len(values) == DIMENSIONS
+                and all(type(v) in (int, float) and math.isfinite(v) for v in values)
+                and any(values))
+    with zipfile.ZipFile(bundle_path) as archive:
+        for name in archive.namelist():
+            if not name.startswith('sample-dataset/') or not name.endswith('.json'):
+                continue
+            saved = json.loads(archive.read(name))
+            photo_id = saved['id']
+            record_path = destination / (photo_id + '.json')
+            image_path = destination / (photo_id + '.jpg')
+            current = json.loads(record_path.read_text()) if record_path.exists() else saved
+            if not isinstance(current, dict) or current.get('id') != photo_id:
+                raise ValueError(f'Conflicting local record: {record_path.name}')
+            if image_path.exists():
+                if hashlib.sha256(image_path.read_bytes()).hexdigest() != photo_id:
+                    raise ValueError(f'Conflicting local image: {image_path.name}')
+            else:
+                temporary = image_path.with_suffix('.jpg.restore-tmp')
+                temporary.write_bytes(archive.read(f'sample-dataset/{photo_id}.jpg'))
+                temporary.replace(image_path)
+            embeddings = current.setdefault('embeddings', {})
+            if not isinstance(embeddings, dict):
+                raise ValueError(f'Invalid local embeddings: {record_path.name}')
+            if record_path.exists() and (valid(embeddings.get(key)) or
+                    (current.get('model') == MODEL and valid(current.get('embedding')))):
+                continue
+            # Preserve names, source metadata, other providers and newer valid analysis.
+            embeddings[key] = saved['embeddings'][key]
+            temporary = record_path.with_suffix('.json.restore-tmp')
+            temporary.write_text(json.dumps(current, separators=(',', ':')) + '\n')
+            temporary.replace(record_path)
+            restored += 1
+    print(f'Saved bundle ready: restored {restored} analysis records; existing analysis preserved.')
+    return restored
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', type=Path, default=Path(__file__).resolve().parents[1] / 'sample-dataset')
@@ -133,8 +178,11 @@ def main():
     parser.add_argument('--expected-count', type=int, default=5134)
     parser.add_argument('--check', action='store_true')
     parser.add_argument('--verify', type=Path)
+    parser.add_argument('--restore', type=Path, help='Restore missing photos and analysis into --source')
     args = parser.parse_args()
-    if args.verify:
+    if args.restore:
+        restore(args.restore, args.source)
+    elif args.verify:
         verify(args.verify)
     else:
         export(args.source, args.output, args.expected_count, args.check)

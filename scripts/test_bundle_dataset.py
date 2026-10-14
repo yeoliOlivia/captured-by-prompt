@@ -26,6 +26,40 @@ class BundleTests(unittest.TestCase):
         self.save()
     def save(self):
         (self.source / (self.id + '.json')).write_text(json.dumps(self.record))
+    def test_restore_missing_collection_and_repeat_without_changes(self):
+        bundle.export(self.source, self.output, 1)
+        destination = self.root / 'restored'
+        self.assertEqual(bundle.restore(self.output, destination), 1)
+        record = destination / (self.id + '.json')
+        before = record.stat().st_mtime_ns
+        self.assertEqual(bundle.restore(self.output, destination), 0)
+        self.assertEqual(record.stat().st_mtime_ns, before)
+        self.assertEqual((destination / (self.id + '.jpg')).read_bytes(), self.image)
+
+    def test_restore_preserves_metadata_other_models_and_newer_vectors(self):
+        bundle.export(self.source, self.output, 1)
+        self.record.pop('embedding')
+        self.record['embeddings'] = {'qwen:test': [3, 4]}
+        self.save()
+        self.assertEqual(bundle.restore(self.output, self.source), 1)
+        record_path = self.source / (self.id + '.json')
+        restored = json.loads(record_path.read_text())
+        self.assertEqual(restored['source'], self.record['source'])
+        self.assertEqual(restored['embeddings']['qwen:test'], [3, 4])
+        key = f'{bundle.MODEL}:3072'
+        restored['embeddings'][key] = [2.0] * 3072
+        record_path.write_text(json.dumps(restored))
+        self.assertEqual(bundle.restore(self.output, self.source), 0)
+        self.assertEqual(json.loads(record_path.read_text())['embeddings'][key], [2.0] * 3072)
+
+    def test_restore_rejects_conflicting_local_image(self):
+        bundle.export(self.source, self.output, 1)
+        (self.source / (self.id + '.jpg')).write_bytes(b'wrong photo')
+        before = (self.source / (self.id + '.json')).read_bytes()
+        with self.assertRaises(ValueError):
+            bundle.restore(self.output, self.source)
+        self.assertEqual((self.source / (self.id + '.json')).read_bytes(), before)
+
     def test_waits_for_analysis_and_rejects_wrong_count(self):
         self.record['embedding'] = [1.0]*768
         self.save()
