@@ -12,9 +12,21 @@ Run `npm run dev:web` and open **http://127.0.0.1:8790/studio** for the Afterglo
 - **Real trip search:** queries use the selected provider's image embeddings, then visually check up to 12 candidates against the full prompt. Confirmed people in this trip feed the existing context resolver; ambiguous names prompt for a choice, and a person without confirmed examples needs a labelled photo first. Search remains restricted to the trip. Demo search uses illustrative sample tags.
 - **Corrections and sharing:** identities must be user-confirmed; scene analysis does not infer them. User edits protect the entire annotation record for now, so absent attributes can remain unknown. Export prepares a JSON selection manifest, not an image ZIP or a message. Existing trip pooling/native Photos sharing remain the route to actual photo exports.
 
-This is a **local single-owner prototype**, not yet a hosted collaboration service. Invites, account permissions, shared cloud storage, automatic iCloud album sync, calibrated aesthetic scores and learned personal taste are future stages. The native iOS picker can import selected accessible photos, including iCloud-backed photos when downloadable; no generic server-side iCloud connector is provided.
+This is a **local single-owner prototype**, not yet a hosted collaboration service. Invites, account permissions, shared cloud storage, unattended iCloud album sync, calibrated aesthetic scores and learned personal taste are future stages. The Mac companion below imports and refreshes a chosen Photos album. The native iOS picker can import selected accessible photos, including iCloud-backed photos when downloadable; no generic server-side iCloud connector is provided.
 
 Storage: `sample-dataset/.trip-studio.sqlite` holds trips and annotations; `.trip-analysis.sqlite` holds resumable job history (manual retry only). These private databases are separate from the portable image/embedding bundle. Back up the workspace with its server stopped. Model keys remain in memory. Read the [trip product and architecture plan](docs/trip-product-plan.md) for the pivot, the production path, and a 20-person pilot.
+
+## Connect a Photos album on your Mac
+
+1. With Xcode installed, run `npm run build:mac-photos` once. This builds and locally signs `artifacts/local/Afterglow Photos.app`; no paid developer membership or iPhone build is needed for this local Mac companion.
+2. Run `npm run dev:web` and open `http://127.0.0.1:8790/studio`. Choose **Connect Apple Photos** to open the companion, or open the `.app` directly.
+3. In the companion, request Photos access, choose an available album, and import it. macOS controls the permission prompt; denied access can be changed in System Settings → Privacy & Security → Photos. The companion uses the Mac's Photos library, so the desired iCloud album must be available there.
+4. Return to **My trips** and refresh the list. The album becomes a persistent trip. Connect your model and use **Prepare** when you want AI analysis; importing does not send photos to an AI provider.
+5. Use the companion's Import/Refresh action again to import new or changed photos. Successful items are checkpointed, unchanged source revisions are skipped, and interrupted imports can resume.
+
+The companion requests resized still JPEG previews, downloading from iCloud through PhotoKit when necessary. Capture time and coarse GPS are retained separately; Live Photo motion and videos are excluded. The native app connects only to the local workspace at `127.0.0.1:8790`, and its import endpoints reject remote clients. It does not ask for an Apple password or modify originals. Limited Photos access may hide albums or photos; missing access is never interpreted as deletion.
+
+This first importer is append-only: edited images may add a new version while preserving the previous trip copy; removals from Apple Photos do not delete workspace copies. Refresh happens when explicitly requested, not continuously in the background. `sample-dataset/.mac-photos.sqlite` stores the private album/trip mapping and source checkpoints and is excluded from Git and dataset bundles. Rebuild the companion after Swift changes. Actual library permissions, cloud-only downloads, and shared-album availability require testing on the user's Mac.
 
 ## Run the workspace
 

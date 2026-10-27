@@ -1,0 +1,55 @@
+import { afterEach, expect, it } from 'vitest';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import sharp from 'sharp';
+import { createPlaygroundServer } from './server.js';
+const cleanup:(()=>Promise<unknown>)[]=[];
+afterEach(async()=>{for(const close of cleanup.splice(0).reverse())await close();});
+
+it('imports a real JPEG into a persistent trip with capture metadata, then refreshes without losing embeddings',async()=>{
+  const dir=await mkdtemp(join(tmpdir(),'mac-photos-integration-'));cleanup.push(()=>rm(dir,{recursive:true,force:true}));
+  let imageCalls=0;
+  const server=await createPlaygroundServer({datasetDir:dir,providerFactory:()=>({image:async()=>{imageCalls++;return Array.from({length:3072},(_,i)=>i===0?1:0);},text:async()=>{throw new Error('No search expected');}})});cleanup.push(()=>server.close());
+  const headers:Record<string,string>={host:'127.0.0.1:8790'};
+  const html=(await server.inject({url:'/studio',headers})).body;
+  const post=(url:string,payload:unknown)=>server.inject({method:'POST',url,headers,payload});
+  const input={clientId:randomUUID(),albumId:'album/local/id',albumTitle:'Real album fixture'};
+  expect((await post('/api/studio/mac/imports/connect',input)).statusCode).toBe(403);
+  headers['x-playground-session']=html.match(/name="playground-session" content="([^"]+)"/)![1];
+  const connected=await post('/api/studio/mac/imports/connect',input);
+  expect(connected.statusCode).toBe(200);
+  const connection=connected.json();
+  const jpeg=await sharp({create:{width:400,height:300,channels:3,background:'#4c7561'}}).jpeg().toBuffer();
+  const asset={connectionId:connection.connectionId,assetId:'asset/local/id',modifiedAt:'2026-10-27T10:00:00Z',name:'Photo from Mac.jpg',jpegBase64:jpeg.toString('base64'),capturedAt:'2026-10-20T17:45:00Z',place:{lat:38.72234,lon:-9.13939}};
+  const imported=await post('/api/studio/mac/imports/asset',asset);
+  expect(imported.statusCode).toBe(200);
+  const result=imported.json();
+  const detail=async()=> (await server.inject({url:`/api/studio/trips/${connection.tripId}`,headers})).json();
+  expect((await detail()).photos).toHaveLength(1);
+  expect((await detail()).photos[0]).toMatchObject({indexed:false,capturedAt:asset.capturedAt,place:{lat:38.72,lon:-9.14}});
+  expect(imageCalls).toBe(0);
+  expect((await post('/api/studio/mac/imports/asset',asset)).json()).toMatchObject({cached:true,photoId:result.photoId});
+  const resumed=(await post('/api/studio/mac/imports/connect',input)).json();
+  expect(resumed.tripId).toBe(connection.tripId);expect(resumed.assets).toHaveLength(1);
+  await post('/connect',{provider:'gemini',key:'mock-mac-import-model-key'});
+  await post('/index',{photoIds:[result.photoId]});
+  await expect.poll(async()=> (await server.inject({url:'/state',headers})).json().indexing).toBe(false);
+  expect(imageCalls).toBe(1);
+  const updated=await post('/api/studio/mac/imports/asset',{...asset,modifiedAt:'2026-10-28T10:00:00Z',capturedAt:'2026-10-20T18:00:00Z'});
+  expect(updated.statusCode).toBe(200);expect(updated.json().photoId).toBe(result.photoId);
+  expect((await detail()).photos).toHaveLength(1);
+  expect((await detail()).photos[0]).toMatchObject({indexed:true,capturedAt:'2026-10-20T18:00:00Z'});
+  const saved=JSON.parse(await readFile(join(dir,`${result.photoId}.json`),'utf8'));
+  expect(saved.embeddings['gemini-embedding-2:3072']).toHaveLength(3072);
+  expect(imageCalls).toBe(1);
+});
+
+it('rejects remote use of the Mac Photos connector even with a valid workspace token',async()=>{
+  const dir=await mkdtemp(join(tmpdir(),'mac-photos-access-'));cleanup.push(()=>rm(dir,{recursive:true,force:true}));
+  const token='local-only-test-token-'.repeat(3);
+  const server=await createPlaygroundServer({datasetDir:dir,mobileToken:token});cleanup.push(()=>server.close());
+  const result=await server.inject({method:'POST',url:'/api/studio/mac/imports/connect',remoteAddress:'192.168.1.12',headers:{host:'192.168.1.10:8790',authorization:`Bearer ${token}`},payload:{clientId:randomUUID(),albumId:'private',albumTitle:'Private'}});
+  expect(result.statusCode).toBe(403);
+});

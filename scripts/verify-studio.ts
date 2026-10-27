@@ -1,5 +1,5 @@
 import { createPlaygroundServer } from '../playground/server.js';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, rm, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -30,8 +30,17 @@ try {
   const page = await browser.newPage({viewport:{width:1440,height:1000},acceptDownloads:true});
   const errors: string[]=[];page.on('pageerror',(error: Error)=>errors.push(error.message));
   page.on('dialog',async(dialog:any)=>dialog.accept());
+  // Exercise the browser flow without ever opening an app or reading Apple Photos.
+  let companionLaunches = 0;
+  await page.route('**/api/studio/mac/launch', async (route:any) => {
+    companionLaunches++;
+    assert.equal(route.request().method(), 'POST');
+    assert(route.request().headers()['x-playground-session']);
+    await route.fulfill({ status: companionLaunches === 1 ? 503 : 200, contentType: 'application/json', body: JSON.stringify(companionLaunches === 1 ? { message: 'Build the Mac companion with npm run build:mac, then try again.' } : { opened: true }) });
+  });
   await page.goto(url+'/studio');
   await page.waitForFunction(()=>document.querySelectorAll('.memory-card').length===24);
+  assert.equal(companionLaunches, 0, 'Browsing must not open the Photos companion.');
   await page.locator('.memory-open').first().click();
   assert(await page.locator('#photo-dialog').isVisible());
   await page.getByRole('button',{name:'Close photo details'}).click();
@@ -40,6 +49,32 @@ try {
   await page.locator('.photo-select input').first().check();
   const downloaded = page.waitForEvent('download'); await page.locator('#export-selection').click();
   const download = await downloaded;assert(download.suggestedFilename().endsWith('.json'));
+  await page.locator('#connect-apple-photos').click();
+  await page.waitForFunction(()=>document.querySelector('#photos-connect-error')?.textContent?.includes('Build the Mac companion'));
+  assert.equal(companionLaunches, 1);
+  assert(await page.locator('#photos-connect-dialog').isVisible());
+  assert((await page.locator('#photos-connect-dialog').textContent()).includes('No Apple password'));
+  assert((await page.locator('#photos-connect-dialog').textContent()).includes('does not run AI'));
+  await page.locator('#photos-launch-retry').click();
+  await page.waitForFunction(()=>document.querySelector('#photos-connect-status')?.textContent?.includes('The Mac companion was opened'));
+  assert.equal(await page.locator('#photos-connect-error').textContent(), '');
+  assert.equal(companionLaunches, 2, 'Only explicit retry should launch the companion again.');
+  await page.locator('#photos-import-refresh').click();
+  await page.waitForFunction(()=>document.querySelector('[data-mode="live"]')?.getAttribute('aria-pressed')==='true' && !!document.querySelector('#refresh-trips'));
+  assert.equal(await page.locator('.trip-list-card').count(), 0);
+  const token=await page.locator('meta[name="playground-session"]').getAttribute('content');
+  const workspace=(await (await page.request.get(url+'/state')).json());
+  // Simulate a completed companion import through the same persistent trip store.
+  const imported=await page.request.post(url+'/api/studio/trips',{ headers:{'x-playground-session':token!}, data:{title:'Photos album import',place:'A local album',members:[],photoIds:[workspace.photos[0].id]} });
+  assert(imported.ok());
+  const refreshed=page.waitForResponse((response:any)=>response.url()===url+'/api/studio/trips' && response.request().method()==='GET');
+  await page.locator('#refresh-trips').click();
+  await refreshed;
+  await page.getByRole('button').filter({hasText:'Photos album import'}).waitFor();
+  assert.equal(companionLaunches, 2);
+  assert.deepEqual([imageCalls,observations,searches],[0,0,0], 'Launching, importing, and refreshing must not run AI.');
+  await mkdir('artifacts/local',{recursive:true});
+  await page.screenshot({path:'artifacts/local/studio-apple-photos-desktop.png',fullPage:true});
   await page.locator('#create-trip').click();
   await page.locator('#trip-form input[name="title"]').fill('Browser trip');
   await page.locator('#trip-form input[name="members"]').fill('Mark, Olivia');
@@ -62,7 +97,7 @@ try {
   await page.getByRole('button',{name:'Save my correction'}).click();
   await page.waitForFunction(()=>!document.querySelector('#photo-dialog')?.hasAttribute('open'));
   const trips=(await (await page.request.get(url+'/api/studio/trips')).json()).trips;
-  const detail=await (await page.request.get(url+`/api/studio/trips/${trips[0].id}`)).json();
+  const detail=await (await page.request.get(url+`/api/studio/trips/${trips.find((trip:any)=>trip.title==='Browser trip').id}`)).json();
   assert.equal(detail.photos.filter((photo:any)=>photo.annotation?.provenance==='user').length,1);
   assert.equal(detail.coverage.annotatedPhotos,2);
   await page.locator('#photo-query').fill('people walking');
@@ -79,6 +114,11 @@ try {
   await page.setViewportSize({width:390,height:844});
   await page.waitForTimeout(250);
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  await page.getByRole('button',{name:'← All my trips'}).click();
+  await page.locator('#import-apple-photos').waitFor();
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  await page.screenshot({path:'artifacts/local/studio-apple-photos-mobile.png',fullPage:true});
+  assert.equal(companionLaunches, 2, 'Reload and list refresh must not launch the companion.');
   assert.deepEqual(errors,[]);
-  console.log('PASS studio browser: demo, filters, manifest download, scoped trip creation, AI connection UI, missing image embeddings, scene analysis, identity correction, scoped visual search, persisted reload and mobile layout. Provider responses mocked; no paid calls.');
+  console.log('PASS studio browser: demo, filters, manifest download, Apple Photos launch error/retry, imported album refresh without AI, scoped trip creation, AI connection UI, missing image embeddings, scene analysis, identity correction, scoped visual search, persisted reload and mobile layout. Companion launch and provider responses mocked; no Photos access or paid calls.');
 } finally { if(browser) await browser.close();await server.close();await rm(dir,{recursive:true,force:true}); }

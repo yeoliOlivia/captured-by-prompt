@@ -6,6 +6,8 @@ let loadGeneration = 0;
 let searchGeneration = 0;
 let statusInFlight = null;
 let jobCheckInFlight = null;
+let tripListPollInFlight = false;
+let photosLaunchInFlight = false;
 const state = { mode: 'demo', view: 'memories', filter: 'all', query: '', person: null, place: null, sort: 'recent', trip: demoTrip, photos: demoPhotos, trips: [], coverage: null, selected: new Set(), saved: new Set(), importPhotos: [], importSelected: new Set(), importLimit: 60, loading: false, analyzing: false, searching: false, searchResults: null, searchError: null, searchClarification: null, searchBindings: {}, ai: null, aiError: null, analysisJob: null, analysisChecked: false, analysisError: null, pendingAnalysis: null };
 const viewNames = { memories: 'Memories', places: 'Places', people: 'Our people', recap: 'The recap', picks: 'The good ones' };
 const icons = {
@@ -154,6 +156,7 @@ function renderHero() {
   const demo = state.mode === 'demo';
   $('hero').hidden = !demo;
   $('breadcrumb-trip').textContent = demo ? 'Lisbon ‘26' : state.trip?.title || 'My trips';
+  $('trip-switch').replaceChildren(node('span', { class: `mini-cover${demo ? '' : ' live-cover'}`, 'aria-hidden': 'true' }, demo ? null : icon('memories')), node('span', {}, demo ? 'Lisbon, lately' : 'My trips', node('small', {}, demo ? 'One very good weekend' : state.trip ? 'Back to your collections' : `${state.trips.length} local ${state.trips.length === 1 ? 'collection' : 'collections'}`)), node('span', { 'aria-hidden': 'true' }, '↗'));
   document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === state.mode)));
   if (demo) {
     $('hero-avatars').replaceChildren(...demoMembers.slice(0, 5).map(m => avatar(m)), node('span', { class: 'avatar' }, '+1'));
@@ -342,7 +345,7 @@ function render() {
   $('view-title').replaceChildren(title, node('span', { class: 'heading-period' }, '.'));
   $('view-description').hidden = state.mode === 'demo' || browsingTrips;
   $('view-description').textContent = state.trip ? `${state.trip.title}${state.trip.place ? ` · ${state.trip.place}` : ''}` : '';
-  $('photo-total').textContent = `${state.photos.length} memories`;
+  $('photo-total').textContent = browsingTrips ? `${state.trips.length} ${state.trips.length === 1 ? 'trip' : 'trips'}` : `${state.photos.length} memories`;
   $('end-note').hidden = browsingTrips || state.loading;
   $('active-filter').hidden = !state.person && !state.place && !state.query;
   $('active-filter').replaceChildren(...[state.person ? memberName(state.person) : null, state.place ? places().find(p => p.id === state.place)?.name : null, state.query ? `“${state.query}”` : null].filter(Boolean).map(label => node('span', {}, label)), button('Clear ×', { onclick: () => { resetFilters(); render(); } }));
@@ -407,8 +410,44 @@ function annotationEditor(photo) {
 }
 
 function renderTripList(content) {
+  content.append(node('section', { class: 'photos-import-card', 'aria-label': 'Import an Apple Photos album' }, node('div', { class: 'photos-import-copy' }, node('span', { class: 'eyebrow' }, 'ALREADY IN YOUR CAMERA ROLL?'), node('h3', {}, 'Bring the whole trip along.'), node('p', {}, 'Choose an album from Apple Photos on this Mac. iCloud photos are available when synced to its library. A manual import, with no automatic AI work.')), node('div', { class: 'photos-import-actions' }, button([node('span', { class: 'photos-flower', 'aria-hidden': 'true' }, '✿'), 'Connect Apple Photos'], { id: 'import-apple-photos', class: 'button-dark', disabled: photosLaunchInFlight, onclick: openApplePhotos }), button('Refresh trips ↻', { id: 'refresh-trips', class: 'photos-refresh', onclick: () => refreshTripList(true) }))));
   if (!state.trips.length) { content.append(empty('The next trip starts here.', 'Create a collection from photos in your workspace. Your original photo search and saved embeddings are still available.', button('＋ Create your first trip', { class: 'button-dark', onclick: openCreateTrip }))); return; }
   content.append(node('div', { class: 'trip-list' }, ...state.trips.map(trip => button([node('span', { class: 'eyebrow' }, trip.place || 'YOUR LOCAL COLLECTION'), node('h3', {}, trip.title), node('p', {}, `${trip.photoCount} photos · ${trip.members?.length || 0} friends${trip.startDate ? ` · ${dateLabel(trip.startDate)}` : ''}`), node('span', { 'aria-hidden': 'true' }, '↗')], { class: 'trip-list-card', onclick: () => loadTrip(trip.id) }))));
+}
+async function refreshTripList(manual = false) {
+  if (tripListPollInFlight || state.mode !== 'live' || state.trip || state.loading) return;
+  tripListPollInFlight = true;
+  const generation = loadGeneration;
+  try {
+    const data = await api('/api/studio/trips');
+    if (state.mode !== 'live' || state.trip || generation !== loadGeneration) return;
+    const changed = JSON.stringify(state.trips) !== JSON.stringify(data.trips || []);
+    state.trips = data.trips || [];
+    if (changed) render();
+    if (manual) announce(changed ? 'Your trips are up to date. Open an imported album to get started.' : 'Trips refreshed. If an import is still running, it will appear when it finishes.');
+  } catch (error) { if (manual) announce(`Could not refresh trips: ${error.message}`); }
+  finally { tripListPollInFlight = false; }
+}
+async function openApplePhotos() {
+  if (photosLaunchInFlight) return;
+  if (!$('photos-connect-dialog').open) $('photos-connect-dialog').showModal();
+  photosLaunchInFlight = true;
+  $('photos-connect-status').textContent = 'Opening the Mac companion…';
+  $('photos-connect-error').textContent = '';
+  $('photos-launch-retry').disabled = true; $('connect-apple-photos').disabled = true;
+  if ($('import-apple-photos')) $('import-apple-photos').disabled = true;
+  try {
+    const response = await api('/api/studio/mac/launch', {});
+    if (!response.opened) throw new Error('The companion did not confirm that it opened. Try opening it again.');
+    $('photos-connect-status').textContent = 'The Mac companion was opened. Choose an album there, then return here when the import finishes.';
+  } catch (error) {
+    $('photos-connect-status').textContent = 'The Apple Photos companion could not be opened.';
+    $('photos-connect-error').textContent = error.message;
+  } finally {
+    photosLaunchInFlight = false;
+    $('photos-launch-retry').disabled = false; $('connect-apple-photos').disabled = false;
+    if ($('import-apple-photos')) $('import-apple-photos').disabled = false;
+  }
 }
 async function loadLiveTrips() {
   const generation = ++loadGeneration;
@@ -552,6 +591,15 @@ $('clear-selection').addEventListener('click', () => { state.selected.clear(); u
 $('save-selection').addEventListener('click', () => { state.selected.forEach(id => state.saved.add(id)); persistSaved(); announce(`${state.selected.size} moments added to your shortlist.`); state.selected.clear(); render(); });
 $('export-selection').addEventListener('click', exportSelection);
 $('create-trip').addEventListener('click', openCreateTrip);
+$('connect-apple-photos').addEventListener('click', openApplePhotos);
+$('connect-apple-photos').setAttribute('aria-label', 'Connect Apple Photos');
+$('connect-apple-photos').setAttribute('title', 'Connect Apple Photos on this Mac');
+$('photos-launch-retry').addEventListener('click', openApplePhotos);
+$('photos-import-refresh').addEventListener('click', async () => {
+  $('photos-connect-dialog').close();
+  if (state.mode !== 'live') await changeMode('live');
+  else { state.trip = null; state.photos = []; state.selected.clear(); resetFilters(); await loadLiveTrips(); }
+});
 $('trip-switch').addEventListener('click', () => { if (state.mode === 'demo') { state.view = 'memories'; resetFilters(); render(); window.scrollTo({ top: 0, behavior: 'smooth' }); } else { state.trip = null; state.photos = []; resetFilters(); state.selected.clear(); loadLiveTrips(); } });
 $('import-more').addEventListener('click', () => { state.importLimit += 60; renderImport(); });
 $('trip-form').addEventListener('submit', async e => {
@@ -569,6 +617,7 @@ async function pollWorkspace() {
   if (state.mode !== 'live' || document.visibilityState !== 'visible') return;
   await refreshAIStatus();
   if (state.mode === 'live' && state.trip) await checkAnalysisJobs();
+  else if (state.mode === 'live') await refreshTripList();
 }
 setInterval(pollWorkspace, 5000);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') pollWorkspace(); });

@@ -12,6 +12,7 @@
   },
   "scripts": {
     "dev:web": "node --import tsx scripts/start-server.ts",
+    "build:mac-photos": "bash scripts/build-mac-photos.sh",
     "test:web": "node --import tsx playground/verify.ts",
     "test:browser": "node --import tsx scripts/verify-browser.ts",
     "test:bundles": "python3 scripts/test_bundle_dataset.py",

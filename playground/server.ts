@@ -5,6 +5,8 @@ import { registerTripStudio } from './trip-studio.js';
 import { registerStudioAnalysis } from './trip-analysis.js';
 import { observationVersion } from './trip-observations.js';
 import { studioSearchContext } from './trip-search-context.js';
+import { registerMacPhotos } from './mac-photos.js';
+import { registerMacPhotosLauncher } from './mac-photos-launch.js';
 export { geminiProvider } from './providers.js';
 import sharp from 'sharp';
 import { matches, openContext, PlanSchema, resolveContext, withSavedReferences, type Memory, type Plan, type PhotoTag } from './context.js';
@@ -208,7 +210,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
   });
   const studio = registerTripStudio(server, {datasetDir, getPhotos: () => photos.map(p => ({...p,indexed:!!embeddingFor(p)}))});
   const studioAnalysis = registerStudioAnalysis(server, {datasetDir, store: studio,
-    isBusy: () => !!(task || searching || tagTask || uploading || scanning),
+    isBusy: () => !!(task || searching || tagTask || uploading || scanning || macPhotos.isRunning()),
     getProvider: () => {
       if (!provider) return null;
       const capturedProvider = provider, name = selected, config = CONFIG[name], key = cacheKey(name);
@@ -224,6 +226,40 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
           await save(photo,{[key]:vector(values,config.dimensions)});
         }};
     }});
+  registerMacPhotosLauncher(server);
+  const macPhotos = registerMacPhotos(server, {datasetDir, studio,
+    isBusy: () => !!(task || searching || tagTask || uploading || scanning || studioAnalysis.isRunning()),
+    importPhoto: async (input, metadata) => {
+      if (task || searching || tagTask || uploading || scanning || studioAnalysis.isRunning()) throw Object.assign(new Error('Wait for the current workspace operation to finish.'), {statusCode:409});
+      uploading = true;
+      try {
+        let bytes: Buffer;
+        try { bytes = await sharp(input, {limitInputPixels:80_000_000}).rotate().resize(1024,1024,{fit:'inside',withoutEnlargement:true}).flatten({background:'#ffffff'}).jpeg({quality:90}).toBuffer(); }
+        catch { throw Object.assign(new Error('The Photos preview could not be read. Retry that photo.'),{statusCode:400}); }
+        const id = createHash('sha256').update(bytes).digest('hex');
+        const existing = photos.find(photo => photo.id === id);
+        const name = metadata.name.replace(/[\x00-\x1f]/g,'').slice(0,200) || 'Apple Photos image';
+        if (!existing && photos.length >= PHOTO_LIMIT) throw Object.assign(new Error('This collection supports up to 10,000 photos.'),{statusCode:400});
+        const path = resolve(datasetDir,`${id}.jpg`);
+        try { await writeFile(path,bytes,{flag:'wx',mode:0o600}); }
+        catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+          if (createHash('sha256').update(await readFile(path)).digest('hex') !== id) throw new Error('An existing image copy is damaged. Restore it before importing again.');
+        }
+        if (existing) {
+          // Photos supplies metadata separately because its JPEG preview strips
+          // EXIF. Unknown metadata never erases information already recorded.
+          const updated = {...existing, capturedAt:metadata.capturedAt ?? existing.capturedAt ?? null,
+            place:metadata.place ?? existing.place ?? null, metadataVersion:METADATA_VERSION};
+          await save(updated);Object.assign(existing,updated);
+          return {id};
+        }
+        const photo:Photo = {id,name,capturedAt:metadata.capturedAt,place:metadata.place,contributor:null,metadataVersion:METADATA_VERSION};
+        await save(photo);photos.push(photo);
+        return {id};
+      } finally { uploading = false; }
+    },
+  });
   server.get('/api/studio/status', async () => ({
     configured:!!provider, provider:selected, providerLabel:CONFIG[selected].label,
     model:CONFIG[selected].model, dimensions:CONFIG[selected].dimensions,
@@ -252,12 +288,12 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
   });
   server.get('/state', async () => ({ protocol: 'captured-v2', datasetId, contextVersion: contextVersion(), photos: photos.map(expose), datasetDir, configured: !!provider, indexing: !!task, searching, indexed: photos.filter(p => embeddingFor(p)).length, total: photos.length, current, error: [datasetWarnings,error].filter(Boolean).join(' '), imageCalls, queryCalls, dimensions: CONFIG[selected].dimensions, model: CONFIG[selected].model, provider: selected, providerLabel: CONFIG[selected].label, verificationModel: CONFIG[selected].vision, verificationCalls, contextCalls, identifyCalls, tagging, tagError }));
   server.post('/scan', async (_, reply) => {
-    if (task || uploading || searching || scanning || studioAnalysis.isRunning()) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
+    if (task || uploading || searching || scanning || studioAnalysis.isRunning() || macPhotos.isRunning()) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
     scanning = true;
     try { return await scanFolders(); } finally { scanning = false; }
   });
   server.post('/upload', async (req, reply) => {
-    if (uploading || task || searching || scanning || studioAnalysis.isRunning()) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
+    if (uploading || task || searching || scanning || studioAnalysis.isRunning() || macPhotos.isRunning()) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
     if (!Buffer.isBuffer(req.body)) return reply.code(400).send({ message: 'Choose an image file.' });
     uploading = true;
     try {
@@ -289,7 +325,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
   });
   server.post('/index', async (req, reply) => {
     if (!provider) return reply.code(503).send({ message: 'Add a provider API key first.' });
-    if (searching || uploading || scanning || studioAnalysis.isRunning()) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
+    if (searching || uploading || scanning || studioAnalysis.isRunning() || macPhotos.isRunning()) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
     const {photoIds} = z.object({photoIds:PhotoScope.optional()}).parse(req.body ?? {});
     const scope = photoIds ? new Set(photoIds) : null;
     const pending = photos.filter(p => (!scope || scope.has(p.id)) && !embeddingFor(p));
@@ -317,7 +353,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
   server.post('/pause', async () => { pause = true; return { message: 'Pausing after the current photo.' }; });
   server.post('/search', async (req, reply) => {
     if (!provider) return reply.code(503).send({ message: 'Add a provider API key first.' });
-    if (task || searching || studioAnalysis.isRunning()) return reply.code(409).send({ message: 'Wait for the current model request to finish.' });
+    if (task || searching || uploading || scanning || studioAnalysis.isRunning() || macPhotos.isRunning()) return reply.code(409).send({ message: 'Wait for the current workspace operation to finish.' });
     const { query, verify, context: requestedContext, bindings, photoIds, studioTripId } = z.object({ studioTripId:z.string().uuid().optional(), photoIds: PhotoScope.optional(), query: z.string().trim().min(1).max(1000), verify: z.boolean().default(false), context:z.boolean().default(false), bindings:z.record(z.string().max(100),z.string().uuid()).default({}) }).parse(req.body);
     let tripContext: ReturnType<typeof studioSearchContext> | undefined;
     if (studioTripId) {
@@ -444,7 +480,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
     if (!provider) return reply.code(503).send({ message: 'Add a provider API key first.' });
     if (!provider.identify) return reply.code(400).send({ message: 'This provider cannot check who is in photos.' });
     if (tagTask) return reply.code(409).send({ message: 'Already checking trip photos.' });
-    if (task || searching || studioAnalysis.isRunning()) return reply.code(409).send({ message: 'Wait for the current model request to finish.' });
+    if (task || searching || uploading || scanning || studioAnalysis.isRunning() || macPhotos.isRunning()) return reply.code(409).send({ message: 'Wait for the current workspace operation to finish.' });
     const found = tripOf((req.params as any).id);
     if (!found) return reply.code(404).send({ message: 'Trip not found.' });
     if (!found.members.length) return reply.code(400).send({ message: 'Add people to this trip first.' });

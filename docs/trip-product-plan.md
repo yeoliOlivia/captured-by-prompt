@@ -43,6 +43,7 @@ Never turn aesthetic photo ranking into beauty scores, personality judgments, or
 - The existing workspace supplies real uploads, Gemini/Qwen image-embedding search, saved context, and cached trip-person checks through the current backend.
 - Existing trip pooling can prepare per-person exports after review. It does not send them to friends or automatically share an iCloud album.
 - Existing iPhone actions cover accessible original assets, but a signed build and actual-device validation remain necessary.
+- A local macOS companion now connects one accessible Photos album to one Studio trip. Explicit Import/Refresh downloads still previews through PhotoKit, carries capture dates and coarse GPS, and resumes from a private source ledger. Importing makes no model calls. It requires macOS Photos authorization and an actual library test; it does not run unattended or delete originals or prior trip copies.
 - Production accounts, invites, object storage, background cloud sync, calibrated aesthetic ranking, and personal model adapters are subsequent work.
 
 Keep the demo isolated from the user's saved image embeddings and personal context. Switching to the local collection must say which data and capabilities are live.
@@ -115,7 +116,7 @@ Ask for broader PhotoKit access only when the workflow needs library management,
 PhotoKit distinguishes iCloud Shared Album assets, which Apple documents as non-editable. Treat those sources as read-only and export an allowed copy when needed. [Apple shared asset type](https://developer.apple.com/documentation/photos/phassetsourcetype/typecloudshared)
 Device-local Photos identifiers differ across libraries; Apple's cloud identifiers map assets between devices associated with the account. They do not grant a friend permission to another person's library. [Apple identifier mapping](https://developer.apple.com/videos/play/wwdc2021/10046/)
 CloudKit stores data in app containers. It is not an API granting this server arbitrary access to someone's iCloud Photos library. [Apple CloudKit containers](https://developer.apple.com/documentation/cloudkit/ckcontainer)
-Therefore scope “iCloud pull” to user-selected, authorized device imports. A general server-side iCloud Photos connector is unsupported in this plan; do not collect Apple passwords or promise automatic album mirroring.
+Therefore scope “iCloud pull” to user-selected, authorized device imports. The Mac companion implements this for explicitly selected local Photos albums, including iCloud-backed assets when available. A general server-side iCloud Photos connector is unsupported in this plan; do not collect Apple passwords or promise automatic album mirroring.
 Next device test: select local and cloud-only photos; retry offline; reconnect; share/favorite/add to album; revoke access; confirm source IDs and saved analysis survive.
 
 ## First real test and release gates

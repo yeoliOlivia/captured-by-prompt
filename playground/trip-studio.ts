@@ -145,14 +145,20 @@ export function openTripStudio(datasetDir: string, getPhotos: () => readonly Stu
         return { ...value, photoCount: Number(count!.count) };
       });
     },
-    create(value: unknown) {
+    create(value: unknown, requestedId?: string) {
       const input = TripInput.parse(value);
+      // Internal importers reserve a stable ID before creating a trip so an
+      // interrupted first import can resume without creating another album.
+      const reservedId = requestedId === undefined ? undefined : z.string().uuid().parse(requestedId);
       return transaction(() => {
+        if (reservedId && db.prepare('SELECT id FROM studio_trips WHERE id=?').get(reservedId)) {
+          return { ...trip(reservedId), photoCount: photoIds(reservedId).length };
+        }
         const ids = unique(input.photoIds), available = library();
         validatePhotos(ids, available); validateReferences(input.members, new Set(ids));
         if (Number(db.prepare('SELECT count(*) AS count FROM studio_trips').get()!.count) >= 200) throw new StudioError('This local workspace supports 200 trips.');
         const now = new Date().toISOString(), { photoIds: _ids, members, ...fields } = input;
-        const valueToSave: StudioTrip = { ...fields, id: randomUUID(), revision: 1, createdAt: now, updatedAt: now, members: members.map(member => ({ ...member, referencePhotoIds: unique(member.referencePhotoIds), id: randomUUID() })) };
+        const valueToSave: StudioTrip = { ...fields, id: reservedId ?? randomUUID(), revision: 1, createdAt: now, updatedAt: now, members: members.map(member => ({ ...member, referencePhotoIds: unique(member.referencePhotoIds), id: randomUUID() })) };
         writeTrip(valueToSave);
         const insert = db.prepare('INSERT INTO studio_photos VALUES (?,?,?)');
         for (const id of ids) insert.run(valueToSave.id, id, now);
