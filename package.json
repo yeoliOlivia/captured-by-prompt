@@ -27,7 +27,8 @@
     "typecheck:server": "tsc --project tsconfig.server.json",
     "build:mobile": "npm exec --workspace @captured/mobile -- expo export --platform ios --output-dir ../../artifacts/local/mobile-export",
     "eval:legacy": "tsx scripts/evaluate.ts",
-    "ios": "npm run ios --workspace @captured/mobile"
+    "ios": "npm run ios --workspace @captured/mobile",
+    "test:studio": "node --import tsx scripts/verify-studio.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

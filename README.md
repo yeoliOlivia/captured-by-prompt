@@ -2,6 +2,19 @@
 
 Search selected photos using image embeddings, optional visual verification, and user-confirmed personal context. The browser and Expo iOS app now use the **same backend**. Neither active client uses generated captions, keyword matching, or Jev ranking.
 
+## Group-trip studio (new concept)
+
+Run `npm run dev:web` and open **http://127.0.0.1:8790/studio** for the Afterglow concept: a shared-trip album, places, people, a recap, and a shortlist. The original image-search workspace stays at `/`.
+
+- **Demo trip:** 24 illustrative photographs and authored sample labels. No model calls, real friends, actual identity recognition, or live geographic evidence are implied. The map is schematic. Filters, photo details, selection and manifest export are interactive.
+- **My trips:** create local albums from existing workspace photos. SQLite persists explicit membership, named people and reviewed annotations. Saved shortlists stay in this browser. Stats show coverage; missing analysis is not counted as a negative finding. Each trip has separate people and observations. Existing legacy context memories/trip-pooling remain accessible in the original workspace and are not automatically migrated.
+- **Optional scene analysis:** explicitly choose up to 12 photos and use the connected Gemini/Qwen vision model to suggest visible activities, visual styles, composition, visible smiles and face clarity. These observations are separate from direct image embeddings. Each call has an idempotency key; successful observations are cached by model/prompt version, and a SQLite reservation prevents concurrent studio calls across servers sharing this folder. Interrupted calls are recorded and never automatically retried. A provider may still bill a request that times out.
+- **Corrections and sharing:** identities must be user-confirmed; scene analysis does not infer them. User edits protect the entire annotation record for now, so absent attributes can remain unknown. Export prepares a JSON selection manifest, not an image ZIP or a message. Existing trip pooling/native Photos sharing remain the route to actual photo exports.
+
+This is a **local single-owner prototype**, not yet a hosted collaboration service. Invites, account permissions, shared cloud storage, automatic iCloud album sync, calibrated aesthetic scores and learned personal taste are future stages. The native iOS picker can import selected accessible photos, including iCloud-backed photos when downloadable; no generic server-side iCloud connector is provided.
+
+Storage: `sample-dataset/.trip-studio.sqlite` holds trips and annotations; `.trip-analysis.sqlite` holds resumable job history (manual retry only). These private databases are separate from the portable image/embedding bundle. Back up the workspace with its server stopped. Model keys remain in memory. Read the [trip product and architecture plan](docs/trip-product-plan.md) for the pivot, the production path, and a 20-person pilot.
+
 ## Run the workspace
 
 Use Node 24 LTS and run `npm install` at the repo root.
@@ -86,3 +99,5 @@ Validation: `npm run typecheck`, `npm test`, `npm run test:web`, `npm run build:
 The repeatable browser suite is `npm run test:browser` (install its browser with `npx playwright install chromium`); portable bundle tests are `npm run test:bundles`. Use Node 24 (`.nvmrc`). See the [October 2026 audit](docs/audit-2026-10-12.md) for fixes, verification results, remaining dependency advisories, and the distinction between tested application logic and untested live-model/iPhone behavior.
 
 The web and LAN servers automatically load `artifacts/local/captured-5134-gemini-3072.zip` on startup when using the default sample collection. Python 3 verifies the bundle and restores missing photos and Gemini analysis, preserving existing valid embeddings, names, other providers, and personal context. No model calls are made. Keep this bundle on disk for recovery; it is not included in Git. Custom `CAPTURED_DATASET_DIR` collections are left alone unless you explicitly set `CAPTURED_DATASET_BUNDLE` to a bundle path. An invalid bundle stops startup with an error instead of silently starting an empty index.
+
+Trip-studio browser verification: `npm run test:studio` exercises demo filters/export, local trip creation, mocked scene analysis, identity correction, scoped semantic search, persistence, and mobile layout without paid model calls.

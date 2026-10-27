@@ -1,6 +1,8 @@
 import Fastify from 'fastify';
 import { CONFIG, geminiProvider, qwenProvider, vector, validateIdentification, validateVerification, type Provider, type ProviderName } from './providers.js';
 import { readPhotoMetadata } from './exif.js';
+import { registerTripStudio } from './trip-studio.js';
+import { registerStudioAnalysis } from './trip-analysis.js';
 export { geminiProvider } from './providers.js';
 import sharp from 'sharp';
 import { matches, openContext, PlanSchema, resolveContext, withSavedReferences, type Memory, type Plan, type PhotoTag } from './context.js';
@@ -149,6 +151,22 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
   });
   server.setErrorHandler((e, _, reply) => reply.code((e as { statusCode?: number }).statusCode === 413 ? 413 : 400).send({ message: (e as { statusCode?: number }).statusCode === 413 ? 'Choose photos smaller than 25 MB each.' : 'Could not process that request. Check the input and try again.' }));
   server.get('/', async (_, reply) => reply.type('text/html').send((await readFile(resolve(directory, 'index.html'), 'utf8')).replace('__SESSION__', session)));
+  server.get('/studio', async (_, reply) => reply.type('text/html').send((await readFile(resolve(directory, 'studio/index.html'), 'utf8')).replace('__SESSION__', session)));
+  server.get('/studio/', async (_, reply) => reply.redirect('/studio'));
+  const studioFiles: Record<string,string> = {'studio.js':'text/javascript','demo.js':'text/javascript','studio.css':'text/css'};
+  server.get('/studio/:file', async (req, reply) => {
+    const file = (req.params as {file:string}).file;
+    if (!studioFiles[file]) return reply.code(404).send({message:'File not found.'});
+    return reply.type(studioFiles[file]).send(await readFile(resolve(directory,'studio',file),'utf8'));
+  });
+  server.get('/studio/assets/:file', async (req, reply) => {
+    const file = (req.params as {file:string}).file;
+    if (!/^[a-z0-9-]+\.jpg$/.test(file)) return reply.code(404).send({message:'Image not found.'});
+    try { return reply.type('image/jpeg').send(await readFile(resolve(directory,'studio/assets',file))); }
+    catch { return reply.code(404).send({message:'Image not found.'}); }
+  });
+  const studio = registerTripStudio(server, {datasetDir, getPhotos: () => photos});
+  registerStudioAnalysis(server, {datasetDir, store: studio, getProvider: () => provider ? {provider, model: CONFIG[selected].vision} : null});
   server.get('/app.js', async (_, reply) => reply.type('text/javascript').send(await readFile(resolve(directory, 'app.js'), 'utf8')));
   server.get('/search-utils.js', async (_, reply) => reply.type('text/javascript').send(await readFile(resolve(directory, '../packages/core/src/strictness.js'), 'utf8')));
   server.get('/context', async () => ({memories:contextStore.list()}));

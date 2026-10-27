@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="playground-session" content="__SESSION__">
+  <meta name="theme-color" content="#f7f7f2">
+  <meta name="description" content="A little more life in your camera roll. Explore the Afterglow group trip photo concept.">
+  <title>afterglow — the good stuff, together.</title>
+  <link rel="stylesheet" href="/studio/studio.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to memories</a>
+  <aside class="sidebar">
+    <a class="wordmark" href="/studio" aria-label="Afterglow home"><span class="sun-mark" aria-hidden="true">✳</span> afterglow</a>
+    <p class="side-label">THE GOOD STUFF, TOGETHER.</p>
+    <nav id="navigation" aria-label="Trip views"></nav>
+    <div class="side-trip"><span class="side-label">YOUR SPACE</span><button type="button" id="trip-switch" class="side-trip-link"><span class="mini-cover"></span><span>Lisbon, lately<small>One very good weekend</small></span><span aria-hidden="true">↗</span></button></div>
+    <div class="side-bottom"><div class="side-note"><span aria-hidden="true">↗</span><p>Less scrolling.<br>More <em>remembering.</em></p></div><a href="/" class="workspace-link">Open image search <span aria-hidden="true">↗</span></a><span class="concept-label">A CAPTURED CONCEPT · V0.1</span></div>
+  </aside>
+
+  <div class="app-shell">
+    <header class="topbar"><div class="breadcrumb"><span>Our trips</span><span aria-hidden="true">/</span><strong id="breadcrumb-trip">Lisbon ‘26</strong></div><div class="header-actions"><div class="mode-switch" aria-label="Data source"><button type="button" data-mode="demo" aria-pressed="true">Demo trip</button><button type="button" data-mode="live" aria-pressed="false">My trips</button></div><button class="button-dark button-small" id="create-trip" type="button"><span aria-hidden="true">+</span> New trip</button><span class="user-avatar" aria-label="Local workspace">Y</span></div></header>
+
+    <main id="main" tabindex="-1">
+      <section class="hero" id="hero" aria-labelledby="trip-title">
+        <div class="hero-copy"><span class="eyebrow"><span class="live-dot"></span> A WEEKEND WORTH KEEPING / 001</span><h1 id="trip-title">A little lost<br><em>in Lisbon.</em><span class="hero-asterisk" aria-hidden="true">✳</span></h1><p class="hero-description" id="trip-description">Six friends. Three days. A thousand “send me that.”<br>All the little moments, finally in one place.</p><div class="trip-meta"><div class="avatar-stack" id="hero-avatars" aria-label="Six fictional trip members"></div><span id="trip-meta">6 friends <span aria-hidden="true">·</span> May 16–18, 2026</span></div></div>
+        <div class="hero-collage" aria-hidden="true"><div class="photo-note">wish we were still here ↴</div><div class="postcard postcard-back"><img src="/studio/assets/photo-1516483638261-f4dbaf036963.jpg" alt=""><span>the scenic route.</span></div><div class="postcard postcard-front"><img src="/studio/assets/photo-1555881400-74d7acaacd8b.jpg" alt=""><span>LISBON, PORTUGAL <span>38°43′ N</span></span></div><span class="collage-star">✧</span></div>
+      </section>
+
+      <div class="demo-notice" id="data-notice"><span class="notice-dot" aria-hidden="true"></span><span><strong>Demo trip</strong> · Illustrative people, places & analysis. <span class="notice-detail">A little preview of what’s possible.</span></span><button type="button" id="about-demo">How this works <span aria-hidden="true">↗</span></button></div>
+
+      <section class="workspace" aria-labelledby="view-title">
+        <div class="view-heading"><div><div class="section-eyebrow" id="view-eyebrow">THE CAMERA ROLL, REIMAGINED</div><h2 id="view-title">Every little moment<span class="heading-period">.</span></h2><p id="view-description" class="view-description" hidden></p></div><div class="heading-actions"><span class="photo-total" id="photo-total">24 memories</span><button class="button-outline" id="select-all" type="button">Select photos</button></div></div>
+        <form class="search-bar" id="search-form" role="search"><span class="search-icon" aria-hidden="true"></span><label class="sr-only" for="photo-query">Search trip photos</label><input id="photo-query" autocomplete="off" maxlength="500" placeholder="The beach, all of us, a golden-hour kind of feeling…"><button type="submit" class="search-submit" aria-label="Search photos"><span aria-hidden="true">↗</span></button></form>
+        <div class="search-suggestions" id="suggestions"><span>TRY A LITTLE</span><button type="button" data-query="golden hour">golden hour <span>↗</span></button><button type="button" data-query="friends">all of us <span>↗</span></button><button type="button" data-query="ocean">by the ocean <span>↗</span></button></div>
+        <p class="search-disclosure" id="search-disclosure" hidden>Demo search uses sample tags. For real image understanding, open <a href="/">image search</a>.</p>
+        <div class="filter-row" id="filters"><div class="filter-pills" role="group" aria-label="Filter photos"><button type="button" data-filter="all" class="active" aria-pressed="true">All moments</button><button type="button" data-filter="people" aria-pressed="false">Our people</button><button type="button" data-filter="scenery" aria-pressed="false">The scenery</button><button type="button" data-filter="saved" aria-pressed="false"><span aria-hidden="true">♡</span> Shortlist <span id="saved-count">0</span></button></div><label class="sort-control"><span class="sr-only">Sort photos</span><select id="photo-sort"><option value="recent">Trip order</option><option value="aesthetic">Aesthetic picks</option><option value="faces">Clear faces first</option></select></label></div>
+        <div class="active-filter" id="active-filter" hidden></div>
+        <div id="view-content"></div>
+        <div class="end-note" id="end-note"><span>✳</span> Good days deserve more than a camera roll.</div>
+      </section>
+      <footer class="main-footer"><span>MADE FOR THE “SEND ME THAT” FRIENDS.</span><div><span id="footer-disclosure">Demo photography via Unsplash. Sample labels are illustrative.</span><a href="/">Live workspace ↗</a></div></footer>
+    </main>
+  </div>
+
+  <div class="selection-tray" id="selection-tray" hidden role="region" aria-label="Selected photos"><div class="tray-count"><span id="selected-count">0</span><span>moments selected</span></div><button type="button" id="clear-selection" class="tray-clear">Clear</button><span class="tray-divider"></span><button type="button" id="save-selection" class="tray-action">♡ Shortlist</button><button type="button" id="export-selection" class="tray-export">Export selection <span aria-hidden="true">↗</span></button></div>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <dialog id="photo-dialog" class="photo-dialog" aria-labelledby="photo-dialog-title"><button type="button" class="dialog-close" aria-label="Close photo details" data-close="photo-dialog">×</button><div id="photo-dialog-content"></div></dialog>
+  <dialog id="info-dialog" class="text-dialog" aria-labelledby="info-title"><button type="button" class="dialog-close" aria-label="Close demo information" data-close="info-dialog">×</button><span class="eyebrow">A SMALL PREVIEW, A BIG IDEA</span><h2 id="info-title">Your trip.<br><em>With a little perspective.</em></h2><p>Afterglow brings a group’s photos into one place: find the moments, discover your favorites, and make something worth sharing.</p><div class="info-item"><strong>This is an illustrative demo</strong><p>These are stock photos with fictional people, place labels, and editorial scores. They are not an AI analysis of the people pictured. Search matches the demo’s sample tags.</p></div><div class="info-item"><strong>Your real photos have their own space</strong><p>“My trips” saves collections from this workspace. Image search in the original workspace already uses real Gemini or Qwen embeddings. New trip statistics and rankings only use recorded annotations, with their source shown.</p></div><div class="info-item"><strong>Start with a selection, keep control</strong><p>The iOS app supports selecting photos through Apple’s Photos access. Automatic iCloud or shared-album syncing is not connected. An export here downloads a selection manifest; it never messages friends or deletes photos.</p></div><button class="button-dark" type="button" data-close="info-dialog">Got it, let’s explore <span>↗</span></button></dialog>
+  <dialog id="trip-dialog" class="text-dialog trip-dialog" aria-labelledby="create-title"><button type="button" class="dialog-close" aria-label="Close new trip" data-close="trip-dialog">×</button><span class="eyebrow">THE FIRST OF MANY</span><h2 id="create-title">Make room for<br><em>a good time.</em></h2><p>Create a trip from photos already in your local workspace. Model analysis sends resized photo previews to your connected provider only when you request it.</p><form id="trip-form"><label>Trip name<input name="title" required maxlength="120" placeholder="A little lost in Lisbon"></label><label>Where did you go?<input name="place" maxlength="160" placeholder="Lisbon, Portugal"></label><label>Who came along?<input name="members" maxlength="1000" placeholder="Maya, Mark, Olivia…"><small>Separate names with commas. Names do not identify faces automatically.</small></label><div class="date-fields"><label>From<input name="startDate" type="date"></label><label>To<input name="endDate" type="date"></label></div><div class="import-heading"><strong>Choose your photos</strong><span id="import-count">Loading workspace…</span></div><p class="import-help">Pick a small set to start. <a href="/">Upload more in your workspace ↗</a></p><div id="import-photos" class="import-grid"></div><button type="button" class="button-outline" id="import-more" hidden>Show more</button><p id="trip-error" class="form-error" role="alert"></p><button class="button-dark create-submit" type="submit">Create trip <span aria-hidden="true">↗</span></button></form></dialog>
+  <script type="module" src="/studio/studio.js"></script>
+</body>
+</html>

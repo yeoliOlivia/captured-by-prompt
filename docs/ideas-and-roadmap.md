@@ -1,8 +1,10 @@
 # Captured by Prompt — Ideas and roadmap
 
-Living planning notes, updated October 12, 2026. These are product ideas, hypotheses, and proposed experiments—not commitments or claims that everything below is implemented. See the [README](../README.md) for setup and documented current behavior.
+Living planning notes, updated October 27, 2026. These are product ideas, hypotheses, and proposed experiments—not commitments or claims that everything below is implemented. See the [README](../README.md) for setup and documented current behavior.
 
 ## Product direction
+
+**Current pivot:** group-trip photo curation. The newer [trip product and architecture plan](trip-product-plan.md) combines places, people, recaps, reviewed photo handoffs and aesthetic picks. The sections below preserve the earlier search and personalization research.
 
 Find the photos a person means, including the personal context behind their words. Better visual retrieval matters, but the more interesting direction is understanding who “Mark” is to me, what I look like, and what “the Japan trip” means in my library.
 
@@ -105,7 +107,7 @@ Keep the adjustable cosine-similarity threshold and evaluate how understandable 
 
 After a trip, friends pool their photos on a shared map, the app finds who is in each photo, and it builds recaps that make curation easy. Personal search stays the everyday use; a public layer comes only after the private loop works. Priorities remain cost first, then efficiency, then quality. The editable plan lives in the [Social direction plan](https://claude.ai/code/artifact/f67c45a1-2b33-4ac9-a2a9-fad368654b58).
 
-Where it stands: trip pooling is built and tested on the `map-version` branch (capture time, location rounded to about 1 km, contributor from folder name, trips with dates and members, a batched and cached vision check of who appears in each photo using anonymous labels, and per-person export). It is not on `main` yet; a trial merge conflicts only in `README.md` and `playground/server.ts`. The iPhone app has no trip view, and phone imports do not record a contributor.
+Where it stands: trip pooling is built and tested on the `map-version` branch (capture time, location rounded to about 1 km, contributor from folder name, trips with dates and members, a batched and cached vision check of who appears in each photo using anonymous labels, and per-person export). It was merged into `main` before the October 27 group-trip studio work. The iPhone app has no trip view, and phone imports do not record a contributor.
 
 Phases, each gated on the one before:
 
@@ -132,7 +134,7 @@ Guardrails:
 - [ ] Prototype binary and textual feedback capture before choosing a personal training method.
 - [ ] Compare explicit preference retrieval with a lightweight learned ranker.
 - [ ] Decide whether shared Qwen fine-tuning or per-user LoRA is warranted by the results.
-- [ ] Port trip pooling from `map-version` onto `main` and rerun all tests.
+- [x] Port trip pooling from `map-version` onto `main` and rerun all tests.
 - [ ] Add a trip map and record a contributor for iPhone imports.
 - [ ] Prototype on-device color and mood recaps for a sample trip.
 

@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { z } from 'zod';
 import { PlanSchema, contextInstruction } from './context.js';
+import { observationInstruction } from './trip-observations.js';
 export const CONFIG = {
   gemini: { model: 'gemini-embedding-2', dimensions: 3072, vision: 'gemini-3.8-flash', label: 'Gemini' },
   qwen: { model: 'qwen3-vl-embedding', dimensions: 2560, vision: 'qwen3-vl-plus', label: 'Qwen (Beijing)' },
@@ -10,7 +11,7 @@ export type Candidate = { id: string; bytes: Buffer };
 export type ContextReference = { label: string; bytes: Buffer };
 export type VerificationContext = { facts: unknown; references: ContextReference[] };
 export type PersonReference = { personId: string; references: Buffer[] };
-export type Provider = { plan?(query: string, facts?: unknown): Promise<unknown>; image(bytes: Buffer): Promise<number[]>; text(query: string): Promise<number[]>; verify?(query: string, photos: Candidate[], context?: VerificationContext): Promise<unknown>; identify?(photos: Candidate[], people: PersonReference[]): Promise<unknown> };
+export type Provider = { observe?(photos: Candidate[]): Promise<unknown>; plan?(query: string, facts?: unknown): Promise<unknown>; image(bytes: Buffer): Promise<number[]>; text(query: string): Promise<number[]>; verify?(query: string, photos: Candidate[], context?: VerificationContext): Promise<unknown>; identify?(photos: Candidate[], people: PersonReference[]): Promise<unknown> };
 export function vector(values: unknown, dimensions = 3072): number[] {
   const result = z.array(z.number().finite()).length(dimensions).parse(values);
   const scale = Math.max(...result.map(Math.abs));
@@ -67,6 +68,12 @@ export function geminiProvider(key: string): Provider {
       const result = await client.models.generateContent({model:config.vision,contents:[{role:'user',parts}],config:{systemInstruction:verificationInstruction+(context ? personalInstruction : ''),responseMimeType:'application/json',maxOutputTokens:12000}});
       return JSON.parse(result.text ?? '');
     },
+    observe: async photos => {
+      const parts: any[] = [];
+      for (const p of photos) parts.push({text:`Photo ID: ${p.id}`},{inlineData:{mimeType:'image/jpeg',data:p.bytes.toString('base64')}});
+      const result = await client.models.generateContent({model:config.vision,contents:[{role:'user',parts}],config:{systemInstruction:observationInstruction,responseMimeType:'application/json',maxOutputTokens:10000}});
+      return JSON.parse(result.text ?? '');
+    },
     identify: async (photos,people) => {
       const parts: any[] = [];
       for (const p of people) for (const bytes of p.references) parts.push({text:`REFERENCE ONLY: person ${p.personId}`},{inlineData:{mimeType:'image/jpeg',data:bytes.toString('base64')}});
@@ -98,6 +105,12 @@ export function qwenProvider(key: string, fetcher: typeof fetch = fetch): Provid
       if (context) { content.push({type:'text',text:'PERSONAL CONTEXT: '+JSON.stringify(context.facts)}); for (const r of context.references) content.push({type:'text',text:'REFERENCE ONLY: '+r.label},{type:'image_url',image_url:{url:`data:image/jpeg;base64,${r.bytes.toString('base64')}`}}); }
       for (const p of photos) content.push({type:'text',text:`Image ID: ${p.id}`},{type:'image_url',image_url:{url:`data:image/jpeg;base64,${p.bytes.toString('base64')}`}});
       const result = await call('/compatible-mode/v1/chat/completions',{model:config.vision,messages:[{role:'system',content:verificationInstruction+(context ? personalInstruction : '')},{role:'user',content}],response_format:{type:'json_object'},enable_thinking:false,max_tokens:12000});
+      return JSON.parse(result.choices?.[0]?.message?.content ?? '');
+    },
+    observe: async photos => {
+      const content: any[] = [];
+      for (const p of photos) content.push({type:'text',text:`Photo ID: ${p.id}`},{type:'image_url',image_url:{url:`data:image/jpeg;base64,${p.bytes.toString('base64')}`}});
+      const result = await call('/compatible-mode/v1/chat/completions',{model:config.vision,messages:[{role:'system',content:observationInstruction},{role:'user',content}],response_format:{type:'json_object'},enable_thinking:false,max_tokens:10000});
       return JSON.parse(result.choices?.[0]?.message?.content ?? '');
     },
     identify:async (photos,people) => {

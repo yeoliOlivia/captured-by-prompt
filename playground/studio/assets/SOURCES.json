@@ -1,0 +1,247 @@
+{
+  "schemaVersion": 1,
+  "source": "Unsplash image CDN",
+  "purpose": "Local illustrative photo assets for the fictional trip demo. No identities or locations are inferred from these photographs.",
+  "images": [
+    {
+      "basename": "photo-1555881400-74d7acaacd8b.jpg",
+      "sourceUrl": "https://images.unsplash.com/photo-1555881400-74d7acaacd8b",
+      "downloadUrl": "https://images.unsplash.com/photo-1555881400-74d7acaacd8b?fit=max&w=900&h=900&q=85&fm=jpg",
+      "bytes": 195741,
+      "purpose": "Illustrative demo photography; fictional labels are not recognition results.",
+      "width": 900,
+      "height": 600,
+      "sha256": "7527efe6f83012cfd8ea9bf9c6c3f6de7dfbc481f76f69da914692002123d462"
+    },
+    {
+      "basename": "photo-1529156069898-49953e39b3ac.jpg",
+      "sourceUrl": "https://images.unsplash.com/photo-1529156069898-49953e39b3ac",
+      "downloadUrl": "https://images.unsplash.com/photo-1529156069898-49953e39b3ac?fit=max&w=900&h=900&q=85&fm=jpg",
+      "bytes": 85394,
+      "purpose": "Illustrative demo photography; fictional labels are not recognition results.",
+      "width": 900,
+      "height": 506,
+      "sha256": "1a2136274df698c28e43ed1d4ed7841184529e2eed2225992303c4ab7cbf2d9f"
+    },
+    {
+      "basename": "photo-1476514525535-07fb3b4ae5f1.jpg",
+      "sourceUrl": "https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1",
+      "downloadUrl": "https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?fit=max&w=900&h=900&q=85&fm=jpg",
+      "bytes": 153348,
+      "purpose": "Illustrative demo photography; fictional labels are not recognition results.",
+      "width": 900,
+      "height": 600,
+      "sha256": "656b2f77587592a4aedcf83d789ddc411ace206b44f33b3c6882ea751c1fde19"
+    },
+    {
+      "basename": "photo-1512621776951-a57141f2eefd.jpg",
+      "sourceUrl": "https://images.unsplash.com/photo-1512621776951-a57141f2eefd",
+      "downloadUrl": "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?fit=max&w=900&h=900&q=85&fm=jpg",
+      "bytes": 154613,
+      "purpose": "Illustrative demo photography; fictional labels are not recognition results.",
+      "width": 900,
+      "height": 600,
+      "sha256": "49be9524d3354dd64d684060670059b3199cc6f20a04f41c4d3be76b2114f100"
+    },
+    {
+      "basename": "photo-1500534623283-312aade485b7.jpg",
+      "sourceUrl": "https://images.unsplash.com/photo-1500534623283-312aade485b7",
+      "downloadUrl": "https://images.unsplash.com/photo-1500534623283-312aade485b7?fit=max&w=900&h=900&q=85&fm=jpg",
+      "bytes": 34381,
+      "purpose": "Illustrative demo photography; fictional labels are not recognition results.",
+      "width": 900,
+      "height": 600,
+      "sha256": "33b6d89389de4282ba197bd9f33762a5228f79503405d4a758696f8d3713320d"
+    },
+    {
+      "basename": "photo-1517841905240-472988babdf9.jpg",
+      "sourceUrl": "https://images.unsplash.com/photo-1517841905240-472988babdf9",
+      "downloadUrl": "https://images.unsplash.com/photo-1517841905240-472988babdf9?fit=max&w=900&h=900&q=85&fm=jpg",
+      "bytes": 108834,
+      "purpose": "Illustrative demo photography; fictional labels are not recognition results.",
+      "width": 600,
+      "height": 900,
+      "sha256": "4d5d5ec52af3fc3bbaa2357070a5ede6dbfa162d8e91e368f69438907b349866"
+    },
+    {
+      "basename": "photo-1516483638261-f4dbaf036963.jpg",
+      "sourceUrl": "https://images.unsplash.com/photo-1516483638261-f4dbaf036963",
+      "downloadUrl": "https://images.unsplash.com/photo-1516483638261-f4dbaf036963?fit=max&w=900&h=900&q=85&fm=jpg",
+      "bytes": 166915,
+      "purpose": "Illustrative demo photography; fictional labels are not recognition results.",
+      "width": 598,
+      "height": 900,
+      "sha256": "9290666a2b35f1df9cdc353c30cd282dea1e829d1501aa249d217f46a05ac384"
+    },
+    {
+      "basename": "photo-1507525428034-b723cf961d3e.jpg",
+      "sourceUrl": "https://images.unsplash.com/photo-1507525428034-b723cf961d3e",
+      "downloadUrl": "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?fit=max&w=900&h=900&q=85&fm=jpg",
+      "bytes": 88401,
+      "purpose": "Illustrative demo photography; fictional labels are not recognition results.",
+      "width": 900,
+      "height": 598,
+      "sha256": "f9ca4d3b9cdab1529480e34ed1694133f23a66af0785a15515632048668b6840"
+    },
+    {
+      "basename": "photo-1500648767791-00dcc994a43e.jpg",
+      "sourceUrl": "https://images.unsplash.com/photo-1500648767791-00dcc994a43e",
+      "downloadUrl": "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?fit=max&w=900&h=900&q=85&fm=jpg",
+      "bytes": 106416,
+      "purpose": "Illustrative demo photography; fictional labels are not recognition results.",
+      "width": 600,
+      "height": 900,
+      "sha256": "2b4d094887bdbc21a59bef5ce48b7d75d4652777671daee2adad4f53f5704912"
+    },
+    {
+      "basename": "photo-1511632765486-a01980e01a18.jpg",
+      "sourceUrl": "https://images.unsplash.com/photo-1511632765486-a01980e01a18",
+      "downloadUrl": "https://images.unsplash.com/photo-1511632765486-a01980e01a18?fit=max&w=900&h=900&q=85&fm=jpg",
+      "bytes": 130565,
+      "purpose": "Illustrative demo photography; fictional labels are not recognition results.",
+      "width": 900,
+      "height": 600,
+      "sha256": "1e2f4158bd0b055fd66df9c456429097dc77645e213163a9e4e1ca145a83d757"
+    },
+    {
+      "basename": "photo-1509042239860-f550ce710b93.jpg",
+      "sourceUrl": "https://images.unsplash.com/photo-1509042239860-f550ce710b93",
+      "downloadUrl": "https://images.unsplash.com/photo-1509042239860-f550ce710b93?fit=max&w=900&h=900&q=85&fm=jpg",
+      "bytes": 115308,
+      "purpose": "Illustrative demo photography; fictional labels are not recognition results.",
+      "width": 600,
+      "height": 900,
+      "sha256": "7e9863c39eaa090e3719904b616011e2b2548cbcf1dc478d1cc13de0a9c84139"
+    },
+    {
+      "basename": "photo-1493246507139-91e8fad9978e.jpg",
+      "sourceUrl": "https://images.unsplash.com/photo-1493246507139-91e8fad9978e",
+      "downloadUrl": "https://images.unsplash.com/photo-1493246507139-91e8fad9978e?fit=max&w=900&h=900&q=85&fm=jpg",
+      "bytes": 110320,
+      "purpose": "Illustrative demo photography; fictional labels are not recognition results.",
+      "width": 900,
+      "height": 600,
+      "sha256": "093be674d90ba6d306e476d6dce08611d70791fde3aeff1930c4ac962a262b49"
+    },
+    {
+      "basename": "photo-1534528741775-53994a69daeb.jpg",
+      "sourceUrl": "https://images.unsplash.com/photo-1534528741775-53994a69daeb",
+      "downloadUrl": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?fit=max&w=900&h=900&q=85&fm=jpg",
+      "bytes": 61454,
+      "purpose": "Illustrative demo photography; fictional labels are not recognition results.",
+      "width": 720,
+      "height": 900,
+      "sha256": "e8f9b01b37c32fba08be5a57e212535b3c28b82eab32a9ec0308bf550d07eaa1"
+    },
+    {
+      "basename": "photo-1500530855697-b586d89ba3ee.jpg",
+      "sourceUrl": "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee",
+      "downloadUrl": "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?fit=max&w=900&h=900&q=85&fm=jpg",
+      "bytes": 117479,
+      "purpose": "Illustrative demo photography; fictional labels are not recognition results.",
+      "width": 600,
+      "height": 900,
+      "sha256": "1b08f9da1cd49e85177f30cd283d66999150d5d9cd7487baca3e1b7fe57e92b4"
+    },
+    {
+      "basename": "photo-1518837695005-2083093ee35b.jpg",
+      "sourceUrl": "https://images.unsplash.com/photo-1518837695005-2083093ee35b",
+      "downloadUrl": "https://images.unsplash.com/photo-1518837695005-2083093ee35b?fit=max&w=900&h=900&q=85&fm=jpg",
+      "bytes": 60349,
+      "purpose": "Illustrative demo photography; fictional labels are not recognition results.",
+      "width": 900,
+      "height": 600,
+      "sha256": "e0aa35f70793e299f4f13ce18f1ae72f10ca67ff79a6476a3665745063736437"
+    },
+    {
+      "basename": "photo-1511988617509-a57c8a288659.jpg",
+      "sourceUrl": "https://images.unsplash.com/photo-1511988617509-a57c8a288659",
+      "downloadUrl": "https://images.unsplash.com/photo-1511988617509-a57c8a288659?fit=max&w=900&h=900&q=85&fm=jpg",
+      "bytes": 78501,
+      "purpose": "Illustrative demo photography; fictional labels are not recognition results.",
+      "width": 900,
+      "height": 600,
+      "sha256": "d8b32b8ba0e97fd588b0a0309327bab8e13e14c60070ea4391a3eb0eedd7bf49"
+    },
+    {
+      "basename": "photo-1506794778202-cad84cf45f1d.jpg",
+      "sourceUrl": "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d",
+      "downloadUrl": "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?fit=max&w=900&h=900&q=85&fm=jpg",
+      "bytes": 139243,
+      "purpose": "Illustrative demo photography; fictional labels are not recognition results.",
+      "width": 600,
+      "height": 900,
+      "sha256": "cfc37488dfbedb1a47d5acfada623d49c7ecb78890e7c3a2b6694b8d2abc656a"
+    },
+    {
+      "basename": "photo-1515387784663-e2e29a23f69e.jpg",
+      "sourceUrl": "https://images.unsplash.com/photo-1515387784663-e2e29a23f69e",
+      "downloadUrl": "https://images.unsplash.com/photo-1515387784663-e2e29a23f69e?fit=max&w=900&h=900&q=85&fm=jpg",
+      "bytes": 289320,
+      "purpose": "Illustrative demo photography; fictional labels are not recognition results.",
+      "width": 600,
+      "height": 900,
+      "sha256": "1cc98904739500cca9b59e63b72f8e5447a8b0ea6f64533fafda82d6dd743642"
+    },
+    {
+      "basename": "photo-1464822759023-fed622ff2c3b.jpg",
+      "sourceUrl": "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b",
+      "downloadUrl": "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?fit=max&w=900&h=900&q=85&fm=jpg",
+      "bytes": 161699,
+      "purpose": "Illustrative demo photography; fictional labels are not recognition results.",
+      "width": 900,
+      "height": 600,
+      "sha256": "f132a5801c0196184424a4a5453f7e46b130db91c02a1dd913e65e8cdf8bf253"
+    },
+    {
+      "basename": "photo-1524504388940-b1c1722653e1.jpg",
+      "sourceUrl": "https://images.unsplash.com/photo-1524504388940-b1c1722653e1",
+      "downloadUrl": "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?fit=max&w=900&h=900&q=85&fm=jpg",
+      "bytes": 48317,
+      "purpose": "Illustrative demo photography; fictional labels are not recognition results.",
+      "width": 600,
+      "height": 900,
+      "sha256": "026d2e0ea22e7bc1fb8a0ccdce2feedf620dd8f69e7590768730c5fd9a349770"
+    },
+    {
+      "basename": "photo-1469474968028-56623f02e42e.jpg",
+      "sourceUrl": "https://images.unsplash.com/photo-1469474968028-56623f02e42e",
+      "downloadUrl": "https://images.unsplash.com/photo-1469474968028-56623f02e42e?fit=max&w=900&h=900&q=85&fm=jpg",
+      "bytes": 83417,
+      "purpose": "Illustrative demo photography; fictional labels are not recognition results.",
+      "width": 900,
+      "height": 598,
+      "sha256": "58bddf4e48b9508861dd4bb9d98763c48892196a74769a61949c1caf55a1f346"
+    },
+    {
+      "basename": "photo-1539571696357-5a69c17a67c6.jpg",
+      "sourceUrl": "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6",
+      "downloadUrl": "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?fit=max&w=900&h=900&q=85&fm=jpg",
+      "bytes": 62545,
+      "purpose": "Illustrative demo photography; fictional labels are not recognition results.",
+      "width": 600,
+      "height": 900,
+      "sha256": "973c0eadfb8a8bb08d312fbb466f45d9dd038dbbab0c6d364fe2752059c535a9"
+    },
+    {
+      "basename": "photo-1519608487953-e999c86e7455.jpg",
+      "sourceUrl": "https://images.unsplash.com/photo-1519608487953-e999c86e7455",
+      "downloadUrl": "https://images.unsplash.com/photo-1519608487953-e999c86e7455?fit=max&w=900&h=900&q=85&fm=jpg",
+      "bytes": 94310,
+      "purpose": "Illustrative demo photography; fictional labels are not recognition results.",
+      "width": 900,
+      "height": 600,
+      "sha256": "a39e56f99d5b32a7d2dc03face7bbbf8d7e2aa3d410964ae0b627702926490a2"
+    },
+    {
+      "basename": "photo-1528605248644-14dd04022da1.jpg",
+      "sourceUrl": "https://images.unsplash.com/photo-1528605248644-14dd04022da1",
+      "downloadUrl": "https://images.unsplash.com/photo-1528605248644-14dd04022da1?fit=max&w=900&h=900&q=85&fm=jpg",
+      "bytes": 117954,
+      "purpose": "Illustrative demo photography; fictional labels are not recognition results.",
+      "width": 900,
+      "height": 600,
+      "sha256": "1394f03a308e2b93471e6b4f7a3cd6d179c6f6820618dbbaad0001a5030166da"
+    }
+  ]
+}

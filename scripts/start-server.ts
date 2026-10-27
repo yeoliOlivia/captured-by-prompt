@@ -39,6 +39,6 @@ if (lan) {
 }
 const server = await createPlaygroundServer({datasetDir,mobileToken});
 await server.listen({host:lan ? '0.0.0.0' : '127.0.0.1',port});
-console.log(`Captured ready at http://127.0.0.1:${port}. Connect a model in the browser; mobile uses the same workspace.`);
+console.log(`Captured ready at http://127.0.0.1:${port}. Trip studio: http://127.0.0.1:${port}/studio. Connect a model in the browser; mobile uses the same workspace.`);
 const shutdown = async () => { await server.close(); process.exit(0); };
 process.on('SIGINT',shutdown); process.on('SIGTERM',shutdown);
