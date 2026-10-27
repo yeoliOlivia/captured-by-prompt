@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import sharp from 'sharp';
 import { createPlaygroundServer } from './server';
 import { CONFIG, geminiProvider, qwenProvider, validateVerification, verificationInstruction } from './providers';
+import { observationInstruction, validateObservations } from './trip-observations';
 const vec = (n:number,axis=0) => Array.from({length:n},(_,i)=>i===axis?1:0);
 afterEach(()=>vi.unstubAllGlobals());
 describe('provider isolation and visual checks',()=>{
@@ -91,5 +92,62 @@ describe('provider isolation and visual checks',()=>{
   expect(requests[1].body.input.contents).toEqual([{text:'tennis and grass'}]);
   expect(requests[2].body.model).toBe('qwen3-vl-plus');
   expect(JSON.stringify(requests)).not.toContain('private-key');
+ });
+});
+
+describe.each(['gemini', 'qwen'] as const)('%s trip observation transport', name => {
+ const ids = ['a'.repeat(64), 'b'.repeat(64)];
+ const observation = (id:string) => ({id,scene:'people',activities:['walking'],vibes:['warm light'],aesthetic:75,smilesVisible:true,facesClear:null,evidence:'Visible smiles; one face is partly obscured.'});
+ const responseBody = (content:string) => name === 'gemini'
+  ? {candidates:[{content:{role:'model',parts:[{text:content}]},finishReason:'STOP'}]}
+  : {choices:[{message:{content}}]};
+ function connect(fetcher:typeof fetch) {
+  if (name === 'gemini') {
+   vi.stubGlobal('fetch',fetcher);
+   return geminiProvider('offline-observation-contract-key');
+  }
+  return qwenProvider('offline-observation-contract-key',fetcher);
+ }
+ it('sends the selected JPEGs with their IDs to the vision model and preserves uncertain observations',async()=>{
+  const photos = await Promise.all(ids.map(async(id,index)=>({id,bytes:await sharp({create:{width:20,height:20,channels:3,background:index?'blue':'red'}}).jpeg().toBuffer()})));
+  const requests:{url:string;body:any;signal:AbortSignal|null|undefined}[]=[];
+  const fetcher = vi.fn(async(url:any,init:any)=>{
+   requests.push({url:String(url),body:JSON.parse(init.body),signal:init.signal});
+   return new Response(JSON.stringify(responseBody(JSON.stringify({results:ids.map(observation)}))),{headers:{'content-type':'application/json'}});
+  });
+  const result = validateObservations(await connect(fetcher).observe!(photos),ids);
+  expect(result.map(item=>({id:item.id,facesClear:item.facesClear}))).toEqual(ids.map(id=>({id,facesClear:null})));
+  expect(requests).toHaveLength(1);
+  const request=requests[0];
+  expect(request.signal).toBeDefined();
+  expect(JSON.stringify(request.body)).not.toContain('offline-observation-contract-key');
+  if (name === 'gemini') {
+   expect(request.url).toContain(`${CONFIG.gemini.vision}:generateContent`);
+   expect(request.body.contents).toEqual([{role:'user',parts:photos.flatMap(photo=>[{text:`Photo ID: ${photo.id}`},{inlineData:{mimeType:'image/jpeg',data:photo.bytes.toString('base64')}}])}]);
+   expect(request.body.systemInstruction.parts).toEqual([{text:observationInstruction}]);
+   expect(request.body.generationConfig.responseMimeType).toBe('application/json');
+  } else {
+   expect(request.url).toBe('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions');
+   expect(request.body.model).toBe(CONFIG.qwen.vision);
+   expect(request.body.messages).toEqual([{role:'system',content:observationInstruction},{role:'user',content:photos.flatMap(photo=>[{type:'text',text:`Photo ID: ${photo.id}`},{type:'image_url',image_url:{url:`data:image/jpeg;base64,${photo.bytes.toString('base64')}`}}])}]);
+   expect(request.body.response_format).toEqual({type:'json_object'});
+  }
+ });
+ it.each([
+  ['invalid JSON', '{not-json'],
+  ['missing requested photo', JSON.stringify({results:[observation(ids[0])]})],
+  ['duplicated photo ID', JSON.stringify({results:[observation(ids[0]),observation(ids[0])]})],
+  ['unrequested identity claim', JSON.stringify({results:[{...observation(ids[0]),personName:'Mark'},observation(ids[1])]})],
+ ])('rejects %s before observations can be saved',async(_case,content)=>{
+  const fetcher=vi.fn(async()=>new Response(JSON.stringify(responseBody(content)),{headers:{'content-type':'application/json'}}));
+  const provider=connect(fetcher);
+  const observe=async()=>validateObservations(await provider.observe!(ids.map(id=>({id,bytes:Buffer.from('offline-image')}))),ids);
+  await expect(observe()).rejects.toThrow();
+  expect(fetcher).toHaveBeenCalledTimes(1);
+ });
+ it('propagates quota errors without retrying or inventing observations',async()=>{
+  const fetcher=vi.fn(async()=>new Response(JSON.stringify({error:{code:429,message:'Quota exhausted in offline test',status:'RESOURCE_EXHAUSTED'}}),{status:429,headers:{'content-type':'application/json'}}));
+  await expect(connect(fetcher).observe!([{id:ids[0],bytes:Buffer.from('offline-image')}])).rejects.toMatchObject({status:429});
+  expect(fetcher).toHaveBeenCalledTimes(1);
  });
 });

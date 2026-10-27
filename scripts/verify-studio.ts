@@ -9,15 +9,16 @@ import sharp from 'sharp';
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
 const dir = await mkdtemp(join(tmpdir(), 'captured-studio-ui-'));
-let observations = 0, searches = 0;
+let observations = 0, searches = 0, imageCalls = 0;
 for (const color of ['red','blue','green']) {
   const bytes = await sharp({create:{width:400,height:300,channels:3,background:color}}).jpeg().toBuffer();
   const id = createHash('sha256').update(bytes).digest('hex');
   await writeFile(join(dir,`${id}.jpg`),bytes);
-  await writeFile(join(dir,`${id}.json`),JSON.stringify({id,name:`${color}.jpg`,embeddings:{'gemini-embedding-2:3072':Array.from({length:3072},(_,i)=>i===0?1:0)}}));
+  await writeFile(join(dir,`${id}.json`),JSON.stringify({id,name:`${color}.jpg`}));
 }
 const server = await createPlaygroundServer({datasetDir:dir,providerFactory:()=>({
-  image:async()=>[],text:async query=>{ searches++;if(query==='failure') throw new Error('mock search failure');return Array.from({length:3072},(_,i)=>i===0?1:0); },
+  image:async()=>{imageCalls++;return Array.from({length:3072},(_,i)=>i===0?1:0);},
+  plan:async query=>({visualQuery:query,references:[]}),text:async query=>{ searches++;if(query==='failure') throw new Error('mock search failure');return Array.from({length:3072},(_,i)=>i===0?1:0); },
   observe:async photos=>{observations++;return {results:photos.map(p=>({id:p.id,scene:'people',activities:['walking'],vibes:['warm light'],aesthetic:75,smilesVisible:true,facesClear:true,evidence:'Test fixture, not live inference.'}))};},
   verify:async(query,photos)=>({requirements:[query],results:photos.map(p=>({id:p.id,checks:[{status:'pass',evidence:'Mocked match for browser testing.'}]}))}),
 })});
@@ -47,12 +48,14 @@ try {
   await page.locator('#trip-form [type="submit"]').click();
   await page.waitForFunction(()=>document.querySelector('#breadcrumb-trip')?.textContent==='Browser trip');
   assert.equal(await page.locator('.memory-card').count(),2);
-  const token=await page.locator('meta[name="playground-session"]').getAttribute('content');
-  const connection=await page.request.post(url+'/connect',{headers:{'x-playground-session':token!},data:{provider:'gemini',key:'test-only-key-not-real'}});
-  assert(connection.ok());
-  await page.getByRole('button',{name:/Analyze next 12/}).click();
-  await page.waitForFunction(()=>document.querySelector('#toast')?.textContent?.includes('processed'));
-  assert.equal(observations,1);
+  await page.locator('#ai-connect').click();
+  await page.locator('#ai-key').fill('test-only-key-not-real');
+  await page.locator('#ai-submit').click();
+  await page.waitForFunction(()=>!document.querySelector('#ai-dialog')?.hasAttribute('open'));
+  assert.equal(await page.locator('#ai-key').inputValue(),'');
+  await page.locator('#prepare-photos').click();
+  await page.waitForFunction(()=>document.querySelector('#analysis-notice')?.textContent?.includes('Your latest preparation'));
+  assert.equal(observations,1);assert.equal(imageCalls,2);
   await page.locator('.memory-open').first().click();
   await page.locator('.annotation-editor summary').click();
   await page.locator('.person-confirm input').first().check();
@@ -65,18 +68,17 @@ try {
   await page.locator('#photo-query').fill('people walking');
   await page.locator('.search-submit').click();
   await page.waitForFunction(()=>document.querySelectorAll('.memory-card').length===2 && !document.querySelector('.search-submit')?.hasAttribute('disabled'));
-  await page.waitForFunction(()=>document.querySelector('#search-disclosure')?.textContent?.includes('Visual search'));
+  await page.waitForFunction(()=>document.querySelector('#search-disclosure')?.textContent?.includes('Search uses saved image embeddings'));
   assert.equal(searches,1);
   await page.locator('#photo-query').fill('failure');
   await page.locator('.search-submit').click();
   await page.waitForFunction(()=>document.querySelectorAll('.memory-card').length===0 && document.querySelector('.empty-state')?.textContent?.includes('search'));
   assert.equal(await page.locator('.memory-card').count(),0);
-  await page.reload();await page.locator('[data-mode="live"]').click();
-  await page.getByRole('button').filter({hasText:'Browser trip'}).click();
-  await page.waitForFunction(()=>document.querySelectorAll('.memory-card').length===2);
+  await page.reload();
+  await page.waitForFunction(()=>document.querySelector('#breadcrumb-trip')?.textContent==='Browser trip' && document.querySelectorAll('.memory-card').length===2);
   await page.setViewportSize({width:390,height:844});
   await page.waitForTimeout(250);
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   assert.deepEqual(errors,[]);
-  console.log('PASS studio browser: demo, filters, manifest download, scoped trip creation, mocked analysis, identity correction, scoped visual search, persisted reload and mobile layout. No paid calls.');
+  console.log('PASS studio browser: demo, filters, manifest download, scoped trip creation, AI connection UI, missing image embeddings, scene analysis, identity correction, scoped visual search, persisted reload and mobile layout. Provider responses mocked; no paid calls.');
 } finally { if(browser) await browser.close();await server.close();await rm(dir,{recursive:true,force:true}); }

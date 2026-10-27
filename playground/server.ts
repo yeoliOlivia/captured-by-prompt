@@ -3,11 +3,14 @@ import { CONFIG, geminiProvider, qwenProvider, vector, validateIdentification, v
 import { readPhotoMetadata } from './exif.js';
 import { registerTripStudio } from './trip-studio.js';
 import { registerStudioAnalysis } from './trip-analysis.js';
+import { observationVersion } from './trip-observations.js';
+import { studioSearchContext } from './trip-search-context.js';
 export { geminiProvider } from './providers.js';
 import sharp from 'sharp';
 import { matches, openContext, PlanSchema, resolveContext, withSavedReferences, type Memory, type Plan, type PhotoTag } from './context.js';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { mkdir, readFile, writeFile, rename, readdir, stat } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import { mkdir, readFile, writeFile, rename, readdir, stat, unlink } from 'node:fs/promises';
 import { resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
@@ -44,6 +47,43 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
   let selected: ProviderName = 'gemini';
   const cacheKey = (name: ProviderName) => `${CONFIG[name].model}:${CONFIG[name].dimensions}`;
   const embeddingFor = (photo: Photo) => photo.embeddings?.[cacheKey(selected)];
+  const validEmbeddings = (photo: Photo, countDamage = false) => {
+    const embeddings = photo.embeddings && typeof photo.embeddings === 'object' && !Array.isArray(photo.embeddings) ? {...photo.embeddings} : {};
+    // Migrate legacy caches without discarding either provider's vectors.
+    for (const name of Object.keys(CONFIG) as ProviderName[]) {
+      const config = CONFIG[name], key = cacheKey(name);
+      if (photo.model === config.model && photo.embedding?.length === config.dimensions && !embeddings[key]) embeddings[key] = photo.embedding;
+      if (embeddings[key]) {
+        try { embeddings[key] = vector(embeddings[key],config.dimensions); }
+        catch { delete embeddings[key]; if (countDamage) damagedEmbeddings++; }
+      }
+    }
+    return embeddings;
+  };
+  const parseSavedPhoto = (contents: string, id: string): Photo => {
+    try {
+      const photo = JSON.parse(contents) as Photo;
+      if (!photo || photo.id !== id || typeof photo.name !== 'string' ||
+        photo.embeddings !== undefined && (!photo.embeddings || typeof photo.embeddings !== 'object' || Array.isArray(photo.embeddings))) throw new Error('Invalid photo cache');
+      return photo;
+    } catch {
+      // Never replace a malformed existing record with a stale in-memory copy.
+      throw Object.assign(new Error('The saved photo cache is damaged. Restore it before saving more analysis.'),{code:'EINVALIDCACHE'});
+    }
+  };
+  const readSavedPhoto = async (id: string) => {
+    try { return parseSavedPhoto(await readFile(resolve(datasetDir, `${id}.json`),'utf8'),id); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; }
+  };
+  const refreshEmbeddings = (photo: Photo) => {
+    // Studio checks at most twelve photos. Refresh synchronously while its
+    // SQLite reservation is held, before deciding to make another paid call.
+    let saved: Photo | undefined;
+    try { saved = parseSavedPhoto(readFileSync(resolve(datasetDir,`${photo.id}.json`),'utf8'),photo.id); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    photo.embeddings = validEmbeddings({...photo,...saved,embeddings:{...photo.embeddings,...saved?.embeddings}});
+    return photo.embeddings;
+  };
   for (const name of await readdir(datasetDir)) {
     if (!/^[a-f0-9]{64}\.json$/.test(name)) continue;
     let photo: Photo;
@@ -52,22 +92,23 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
       if (!photo || photo.id !== name.slice(0, -5) || typeof photo.name !== 'string') throw new Error('Invalid dataset record');
       if (!(await stat(resolve(datasetDir, `${photo.id}.jpg`))).isFile()) throw new Error('Missing photo');
     } catch { damagedRecords++; continue; }
-    if (!photo.embeddings || typeof photo.embeddings !== 'object' || Array.isArray(photo.embeddings)) photo.embeddings = {};
-    // Migrate legacy caches without discarding either provider's vectors.
-    for (const name of Object.keys(CONFIG) as ProviderName[]) {
-      const config = CONFIG[name];
-      if (photo.model === config.model && photo.embedding?.length === config.dimensions && !photo.embeddings[cacheKey(name)]) photo.embeddings[cacheKey(name)] = photo.embedding;
-      if (photo.embeddings[cacheKey(name)]) {
-        try { photo.embeddings[cacheKey(name)] = vector(photo.embeddings[cacheKey(name)],config.dimensions); }
-        catch { delete photo.embeddings[cacheKey(name)]; damagedEmbeddings++; }
-      }
-    }
+    photo.embeddings = validEmbeddings(photo,true);
     photos.push(photo);
   }
-  const save = async (photo: Photo) => {
+  const save = async (photo: Photo, embeddingUpdates: Record<string,number[]> = {}) => {
     const path = resolve(datasetDir, `${photo.id}.json`);
-    await writeFile(`${path}.tmp`, JSON.stringify(photo));
-    await rename(`${path}.tmp`, path);
+    const persisted = await readSavedPhoto(photo.id);
+    // An embedding-only write must not roll back newer capture metadata either.
+    const metadata = Object.keys(embeddingUpdates).length ? {...photo,...persisted} : {...persisted,...photo};
+    const saved = {...metadata,embeddings:{...photo.embeddings,...persisted?.embeddings,...embeddingUpdates}};
+    const temporary = `${path}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporary, JSON.stringify(saved), {flag:'wx',mode:0o600});
+      await rename(temporary, path);
+    } finally {
+      await unlink(temporary).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
+    }
+    Object.assign(photo,saved,{embeddings:validEmbeddings(saved)});
   };
   // Plain photo folders can be copied into sample-dataset without index files.
   async function scanFolders() {
@@ -165,8 +206,31 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
     try { return reply.type('image/jpeg').send(await readFile(resolve(directory,'studio/assets',file))); }
     catch { return reply.code(404).send({message:'Image not found.'}); }
   });
-  const studio = registerTripStudio(server, {datasetDir, getPhotos: () => photos});
-  registerStudioAnalysis(server, {datasetDir, store: studio, getProvider: () => provider ? {provider, model: CONFIG[selected].vision} : null});
+  const studio = registerTripStudio(server, {datasetDir, getPhotos: () => photos.map(p => ({...p,indexed:!!embeddingFor(p)}))});
+  const studioAnalysis = registerStudioAnalysis(server, {datasetDir, store: studio,
+    isBusy: () => !!(task || searching || tagTask || uploading || scanning),
+    getProvider: () => {
+      if (!provider) return null;
+      const capturedProvider = provider, name = selected, config = CONFIG[name], key = cacheKey(name);
+      return {provider:{...capturedProvider,image:async (bytes:Buffer) => {imageCalls++;return capturedProvider.image(bytes);}}, model:config.vision,
+        embeddingModel:config.model, dimensions:config.dimensions,
+        hasEmbedding:(id:string) => {
+          const photo = photos.find(photo => photo.id === id);
+          return !!(photo && refreshEmbeddings(photo)[key]);
+        },
+        saveEmbedding:async (id:string,values:number[]) => {
+          const photo = photos.find(photo => photo.id === id);
+          if (!photo) throw new Error('Photo is no longer in this workspace.');
+          await save(photo,{[key]:vector(values,config.dimensions)});
+        }};
+    }});
+  server.get('/api/studio/status', async () => ({
+    configured:!!provider, provider:selected, providerLabel:CONFIG[selected].label,
+    model:CONFIG[selected].model, dimensions:CONFIG[selected].dimensions,
+    verificationModel:CONFIG[selected].vision, observationModel:`${CONFIG[selected].vision}/${observationVersion}`,
+    indexing:!!task, searching, analyzing:studioAnalysis.isRunning() || !!tagTask,
+    indexed:photos.filter(p=>embeddingFor(p)).length, total:photos.length, datasetId,
+  }));
   server.get('/app.js', async (_, reply) => reply.type('text/javascript').send(await readFile(resolve(directory, 'app.js'), 'utf8')));
   server.get('/search-utils.js', async (_, reply) => reply.type('text/javascript').send(await readFile(resolve(directory, '../packages/core/src/strictness.js'), 'utf8')));
   server.get('/context', async () => ({memories:contextStore.list()}));
@@ -188,12 +252,12 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
   });
   server.get('/state', async () => ({ protocol: 'captured-v2', datasetId, contextVersion: contextVersion(), photos: photos.map(expose), datasetDir, configured: !!provider, indexing: !!task, searching, indexed: photos.filter(p => embeddingFor(p)).length, total: photos.length, current, error: [datasetWarnings,error].filter(Boolean).join(' '), imageCalls, queryCalls, dimensions: CONFIG[selected].dimensions, model: CONFIG[selected].model, provider: selected, providerLabel: CONFIG[selected].label, verificationModel: CONFIG[selected].vision, verificationCalls, contextCalls, identifyCalls, tagging, tagError }));
   server.post('/scan', async (_, reply) => {
-    if (task || uploading || searching || scanning) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
+    if (task || uploading || searching || scanning || studioAnalysis.isRunning()) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
     scanning = true;
     try { return await scanFolders(); } finally { scanning = false; }
   });
   server.post('/upload', async (req, reply) => {
-    if (uploading || task || searching || scanning) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
+    if (uploading || task || searching || scanning || studioAnalysis.isRunning()) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
     if (!Buffer.isBuffer(req.body)) return reply.code(400).send({ message: 'Choose an image file.' });
     uploading = true;
     try {
@@ -212,36 +276,38 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
     } finally { uploading = false; }
   });
   server.post('/connect', async (req, reply) => {
-    if (task || searching || tagTask) return reply.code(409).send({ message: 'Wait for the current model request to finish.' });
+    if (task || searching || tagTask || studioAnalysis.isRunning()) return reply.code(409).send({ message: 'Wait for the current model request to finish.' });
     const { key, provider: name } = z.object({ key: z.string().trim().min(20).max(8192), provider: z.enum(['gemini','qwen']).default('gemini') }).parse(req.body);
     if (/\s/.test(key)) return reply.code(400).send({ message: 'Paste only the API key.' });
     provider = options.providerFactory ? options.providerFactory(key,name) : name === 'qwen' ? qwenProvider(key) : geminiProvider(key); selected = name; plans.clear(); resolvedQueries.clear(); queries.clear(); verifiedQueries.clear(); error = '';
     return { configured: true };
   });
   server.post('/disconnect', async (_, reply) => {
-    if (task || searching || tagTask) return reply.code(409).send({ message: 'Pause indexing and wait for the current model request to finish.' });
+    if (task || searching || tagTask || studioAnalysis.isRunning()) return reply.code(409).send({ message: 'Pause indexing and wait for the current model request to finish.' });
 
     provider = null; plans.clear(); resolvedQueries.clear(); queries.clear(); verifiedQueries.clear(); return { configured: false };
   });
   server.post('/index', async (req, reply) => {
     if (!provider) return reply.code(503).send({ message: 'Add a provider API key first.' });
-    if (searching || uploading || scanning) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
+    if (searching || uploading || scanning || studioAnalysis.isRunning()) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
     const {photoIds} = z.object({photoIds:PhotoScope.optional()}).parse(req.body ?? {});
     const scope = photoIds ? new Set(photoIds) : null;
     const pending = photos.filter(p => (!scope || scope.has(p.id)) && !embeddingFor(p));
     if (task || !pending.length) return { indexing: !!task };
     error = ''; pause = false;
     task = (async () => {
+      // A cache refresh can make the whole batch a no-op. Yield once so task
+      // is assigned before the completion handler clears it.
+      await Promise.resolve();
       try {
         for (const p of pending) {
           if (pause) break;
+          if (refreshEmbeddings(p)[cacheKey(selected)]) continue;
           current = p.name;
           const bytes = await readFile(resolve(datasetDir, `${p.id}.jpg`));
           imageCalls++;
           const embedding = vector(await provider!.image(bytes), CONFIG[selected].dimensions);
-          const embeddings = { ...p.embeddings, [cacheKey(selected)]: embedding };
-          await save({ ...p, embeddings });
-          p.embeddings = embeddings;
+          await save(p,{[cacheKey(selected)]:embedding});
         }
       } catch (e) { error = providerError(e,'photo analysis'); }
       finally { current = ''; task = null; }
@@ -251,9 +317,15 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
   server.post('/pause', async () => { pause = true; return { message: 'Pausing after the current photo.' }; });
   server.post('/search', async (req, reply) => {
     if (!provider) return reply.code(503).send({ message: 'Add a provider API key first.' });
-    if (task || searching) return reply.code(409).send({ message: 'Wait for the current model request to finish.' });
-    const { query, verify, context: useContext, bindings, photoIds } = z.object({ photoIds: PhotoScope.optional(), query: z.string().trim().min(1).max(1000), verify: z.boolean().default(false), context:z.boolean().default(false), bindings:z.record(z.string().max(100),z.string().uuid()).default({}) }).parse(req.body);
-    const scope = photoIds ? new Set(photoIds) : null;
+    if (task || searching || studioAnalysis.isRunning()) return reply.code(409).send({ message: 'Wait for the current model request to finish.' });
+    const { query, verify, context: requestedContext, bindings, photoIds, studioTripId } = z.object({ studioTripId:z.string().uuid().optional(), photoIds: PhotoScope.optional(), query: z.string().trim().min(1).max(1000), verify: z.boolean().default(false), context:z.boolean().default(false), bindings:z.record(z.string().max(100),z.string().uuid()).default({}) }).parse(req.body);
+    let tripContext: ReturnType<typeof studioSearchContext> | undefined;
+    if (studioTripId) {
+      try { tripContext = studioSearchContext(studio.details(studioTripId)); }
+      catch { return reply.code(404).send({message:'Trip not found.'}); }
+    }
+    const useContext = !!tripContext || requestedContext;
+    const scope = tripContext ? new Set(tripContext.photoIds.filter(id => !photoIds || photoIds.includes(id))) : photoIds ? new Set(photoIds) : null;
     const indexed = photos.filter(p => embeddingFor(p) && (!scope || scope.has(p.id)));
     if (!indexed.length) return reply.code(400).send({ message: 'Analyze your photos first.' });
     searching = true;
@@ -266,10 +338,14 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
         if (cachedPlan) plan = cachedPlan;
         else { contextCalls++; plan = PlanSchema.parse(await provider.plan(query)); if (plans.size >= 100) plans.delete(plans.keys().next().value!); plans.set(query,plan); }
       }
-      const saved = contextStore.list();
+      const saved = tripContext ? tripContext.memories : contextStore.list();
       const resolution = resolveContext(useContext ? withSavedReferences(plan,query,saved) : plan,saved,bindings);
       if (resolution.questions.length) return {needsClarification:true,query,questions:resolution.questions};
       const memories = [...new Map(resolution.resolved.map(r=>[r.memory.id,r.memory])).values()];
+      if (tripContext) {
+        const ungrounded = memories.filter(memory => !memory.photoIds.length);
+        if (ungrounded.length) return {needsClarification:true,query,questions:ungrounded.map(memory => ({term:memory.name,kind:'person',choices:[memory],needsExamples:true})),message:'Confirm who appears in at least one trip photo before searching for this person.'};
+      }
       const contextUsed = resolution.resolved.map(r=>({term:r.term,id:r.memory.id,name:r.memory.name,qualifier:r.memory.qualifier}));
       let embeddingQuery = query;
       if (memories.length) {
@@ -299,7 +375,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
       const affinity = (id:string) => linked.has(id) ? 1 : Math.max(-1,...referenceVectors.map(v=>embeddingFor(indexedById.get(id)!)!.reduce((sum,x,i)=>sum+x*v[i],0)));
       const pool = memories.length ? results.map(p=>({...p,similarity:Math.max(p.similarity,affinity(p.id))})).sort((a,b)=>b.similarity-a.similarity) : results;
       const candidates = pool.slice(0,12);
-      const verificationKey = JSON.stringify([selected,query,candidates.map(p=>p.id),memories]);
+      const verificationKey = JSON.stringify([selected,query,candidates.map(p=>p.id),memories,tripContext?.revision]);
       let verification = verifiedQueries.get(verificationKey);
       const verificationCached = !!verification;
       if (!verification) {
@@ -307,7 +383,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
         step = 'visual check'; verificationCalls++;
         const references = [];
         for (const m of memories) for (const id of m.photoIds.slice(0,2)) references.push({label:JSON.stringify({entityId:m.id,name:m.name,qualifier:m.qualifier}),bytes:await readFile(resolve(datasetDir,`${id}.jpg`))});
-        const facts = {entities:memories,bindings:contextUsed,candidates:candidates.map(p=>({id:p.id,confirmedEntityIds:memories.filter(m=>m.photoIds.includes(p.id)).map(m=>m.id)}))};
+        const facts = {entities:memories,bindings:contextUsed,candidates:candidates.map(p=>({id:p.id,confirmedEntityIds:tripContext ? tripContext.confirmedPeople(p.id).filter(id=>memories.some(m=>m.id===id)) : memories.filter(m=>m.photoIds.includes(p.id)).map(m=>m.id)}))};
         verification = validateVerification(await provider.verify(query,images,memories.length ? {facts,references} : undefined),candidates.map(p=>p.id));
         if (verifiedQueries.size >= 50) verifiedQueries.delete(verifiedQueries.keys().next().value!);
         verifiedQueries.set(verificationKey,verification);
@@ -368,6 +444,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
     if (!provider) return reply.code(503).send({ message: 'Add a provider API key first.' });
     if (!provider.identify) return reply.code(400).send({ message: 'This provider cannot check who is in photos.' });
     if (tagTask) return reply.code(409).send({ message: 'Already checking trip photos.' });
+    if (task || searching || studioAnalysis.isRunning()) return reply.code(409).send({ message: 'Wait for the current model request to finish.' });
     const found = tripOf((req.params as any).id);
     if (!found) return reply.code(404).send({ message: 'Trip not found.' });
     if (!found.members.length) return reply.code(400).send({ message: 'Add people to this trip first.' });

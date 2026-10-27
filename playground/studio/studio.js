@@ -3,7 +3,10 @@ import { demoMembers, demoPhotos, demoPlaces, demoTrip } from './demo.js';
 const $ = id => document.getElementById(id);
 const token = document.querySelector('meta[name="playground-session"]').content;
 let loadGeneration = 0;
-const state = { mode: 'demo', view: 'memories', filter: 'all', query: '', person: null, place: null, sort: 'recent', trip: demoTrip, photos: demoPhotos, trips: [], coverage: null, selected: new Set(), saved: new Set(), importPhotos: [], importSelected: new Set(), importLimit: 60, loading: false, analyzing: false, searching: false, searchResults: null, searchError: null };
+let searchGeneration = 0;
+let statusInFlight = null;
+let jobCheckInFlight = null;
+const state = { mode: 'demo', view: 'memories', filter: 'all', query: '', person: null, place: null, sort: 'recent', trip: demoTrip, photos: demoPhotos, trips: [], coverage: null, selected: new Set(), saved: new Set(), importPhotos: [], importSelected: new Set(), importLimit: 60, loading: false, analyzing: false, searching: false, searchResults: null, searchError: null, searchClarification: null, searchBindings: {}, ai: null, aiError: null, analysisJob: null, analysisChecked: false, analysisError: null, pendingAnalysis: null };
 const viewNames = { memories: 'Memories', places: 'Places', people: 'Our people', recap: 'The recap', picks: 'The good ones' };
 const icons = {
   memories: ['M3 3h6v6H3z', 'M15 3h6v6h-6z', 'M3 15h6v6H3z', 'M15 15h6v6h-6z'],
@@ -48,12 +51,98 @@ function dateLabel(value) { if (!value) return 'Date not recorded'; const date =
 function savedKey() { return `afterglow-shortlist:${state.trip?.id || 'none'}`; }
 function loadSaved() { try { const saved = JSON.parse(localStorage.getItem(savedKey()) || '[]'); state.saved = new Set(Array.isArray(saved) ? saved.filter(id => state.photos.some(p => p.id === id)) : []); } catch { state.saved = new Set(); } }
 function persistSaved() { try { localStorage.setItem(savedKey(), JSON.stringify([...state.saved])); } catch { announce('Shortlist kept for this session. Browser storage is unavailable.'); } }
-function resetFilters() { state.query = ''; state.searchResults = null; state.searchError = null; state.person = null; state.place = null; state.filter = 'all'; $('photo-query').value = ''; }
+function resetFilters() { searchGeneration++; state.searching = false; state.query = ''; state.searchResults = null; state.searchError = null; state.searchClarification = null; state.searchBindings = {}; state.person = null; state.place = null; state.filter = 'all'; $('photo-query').value = ''; }
 async function api(path, body) {
   const response = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json', 'x-playground-session': token }, body: JSON.stringify(body) });
   let data; try { data = await response.json(); } catch { throw new Error('The workspace did not return a usable response. Make sure the app is running.'); }
   if (!response.ok) throw new Error(data.message || data.error || `Request failed (${response.status})`);
   return data;
+}
+
+function providerIdentity(value = state.ai) { return value ? `${value.datasetId}:${value.provider}:${value.model}:${value.dimensions}:${value.observationModel || value.verificationModel}` : ''; }
+function observationCurrent(photo) { return photo.annotation?.provenance === 'user' || (state.ai?.observationModel ? photo.annotation?.model === state.ai.observationModel : Boolean(state.ai?.verificationModel && photo.annotation?.model?.startsWith(`${state.ai.verificationModel}/`))); }
+function preparationCandidates() { return state.photos.filter(photo => !photo.indexed || !observationCurrent(photo)); }
+function analysisStorageKey(tripId = state.trip?.id) { return state.ai && tripId ? `afterglow-preparation:${state.ai.datasetId}:${state.ai.provider}:${tripId}` : null; }
+function readPendingAnalysis() {
+  try {
+    const key = analysisStorageKey(), value = key && JSON.parse(sessionStorage.getItem(key) || 'null');
+    return value && /^[a-f0-9-]{36}$/i.test(value.requestId) && Array.isArray(value.photoIds) && value.photoIds.length && value.photoIds.length <= 12 && value.photoIds.every(id => /^[a-f0-9]{64}$/.test(id)) ? value : null;
+  } catch { return null; }
+}
+function writePendingAnalysis(value, key = analysisStorageKey()) {
+  state.pendingAnalysis = value;
+  try { if (key) value ? sessionStorage.setItem(key, JSON.stringify(value)) : sessionStorage.removeItem(key); } catch { /* Server job history remains the source of truth when browser storage is blocked. */ }
+}
+function persistWorkspaceView() {
+  try { sessionStorage.setItem('afterglow-view', JSON.stringify({ mode: state.mode, tripId: state.mode === 'live' ? state.trip?.id || null : null, datasetId: state.ai?.datasetId || null })); } catch { /* Navigation persistence is optional. */ }
+}
+function renderAIStatus() {
+  $('ai-status').hidden = state.mode !== 'live';
+  if (state.mode !== 'live') return;
+  const ai = state.ai;
+  const busy = ai?.analyzing || ai?.indexing || ai?.searching;
+  $('ai-status').classList.toggle('connected', Boolean(ai?.configured && !state.aiError));
+  $('ai-status-title').textContent = state.aiError ? 'Workspace connection unavailable' : !ai ? 'Checking your workspace…' : ai.configured ? `${ai.providerLabel || ai.provider} · Key loaded` : 'A little AI, when you’re ready.';
+  $('ai-status-detail').textContent = state.aiError || (!ai ? 'Checking saved analysis and your model connection.' : `${ai.indexed.toLocaleString()} of ${ai.total.toLocaleString()} workspace photos search-ready${busy ? ' · Model work in progress' : ''}. ${ai.configured ? 'A key is loaded; provider acceptance is checked on use.' : 'Connect your provider to search or prepare photos.'}`);
+  $('ai-connect').textContent = ai?.configured ? 'Manage AI ↗' : 'Connect AI ↗';
+  $('ai-connect').disabled = !ai || Boolean(state.aiError);
+  $('ai-disconnect').hidden = !ai?.configured;
+}
+async function refreshAIStatus() {
+  if (statusInFlight) return statusInFlight;
+  statusInFlight = (async () => {
+    try {
+      const next = await api('/api/studio/status');
+      const changed = state.ai && providerIdentity(next) !== providerIdentity();
+      const indexedChanged = state.ai && next.indexed !== state.ai.indexed;
+      state.ai = next; state.aiError = null;
+      if (changed) {
+        searchGeneration++; state.searching = false; state.searchResults = null; state.searchClarification = null; state.searchBindings = {}; state.selected.clear();
+        if (state.query) state.searchError = 'The connected model changed. Search again using this provider’s saved embeddings.';
+        state.analysisChecked = false; state.analysisJob = null; state.pendingAnalysis = readPendingAnalysis();
+      }
+      renderAIStatus();
+      if (state.mode === 'live' && state.trip && (changed || indexedChanged) && !state.loading) await loadTrip(state.trip.id);
+      return next;
+    } catch (error) { state.aiError = error.message; renderAIStatus(); return null; }
+    finally { statusInFlight = null; }
+  })();
+  return statusInFlight;
+}
+function updateProviderNote() {
+  $('ai-provider-note').textContent = $('ai-provider').value === 'qwen' ? 'Use an Alibaba Cloud Model Studio key for the configured Beijing endpoint. Qwen and Gemini keep separate image indexes.' : 'Use a Gemini API key. The saved sample bundle already contains Gemini image embeddings.';
+}
+async function openAIConnection() {
+  await refreshAIStatus();
+  $('ai-error').textContent = ''; $('ai-key').value = ''; $('ai-provider').value = state.ai?.provider || 'gemini'; updateProviderNote();
+  $('ai-dialog').showModal();
+}
+async function checkAnalysisJobs({ refreshPhotos = true } = {}) {
+  const tripId = state.trip?.id, identity = providerIdentity();
+  if (state.mode !== 'live' || !tripId || !state.ai) return;
+  if (jobCheckInFlight?.tripId === tripId && jobCheckInFlight.identity === identity) return jobCheckInFlight.promise;
+  const promise = (async () => {
+    try {
+      const result = await api(`/api/studio/trips/${encodeURIComponent(tripId)}/analysis`);
+      if (state.mode !== 'live' || state.trip?.id !== tripId || identity !== providerIdentity()) return;
+      const previous = state.analysisJob;
+      const pending = state.pendingAnalysis || readPendingAnalysis();
+      const jobs = result.jobs || [];
+      const job = jobs.find(item => item.status === 'running') || (pending ? jobs.find(item => item.id === pending.requestId) : jobs[0]) || null;
+      state.analysisJob = job; state.analysisChecked = true; state.analysisError = null;
+      state.pendingAnalysis = pending;
+      if (pending && jobs.some(item => item.id === pending.requestId && item.status !== 'running')) writePendingAnalysis(null);
+      state.analyzing = job?.status === 'running';
+      if (pending && !jobs.some(item => item.id === pending.requestId)) state.analysisError = 'The previous preparation request has no confirmed outcome yet. Check its status, or explicitly retry the same request below. It will use the same request ID to avoid duplicate work.';
+      const newlyFinished = previous?.status === 'running' && job?.id === previous.id && job.status !== 'running';
+      if (refreshPhotos && newlyFinished) await loadTrip(tripId, { checkJobs: false }); else render();
+      return job;
+    } catch (error) {
+      if (state.mode === 'live' && state.trip?.id === tripId && identity === providerIdentity()) { state.analysisError = `Could not confirm preparation status: ${error.message} No new work will start until the status can be checked.`; state.analysisChecked = false; render(); }
+    } finally { if (jobCheckInFlight?.promise === promise) jobCheckInFlight = null; }
+  })();
+  jobCheckInFlight = { tripId, identity, promise };
+  return promise;
 }
 
 function renderNavigation() {
@@ -137,6 +226,17 @@ function card(photo, rank = null) {
 function empty(title, description, action = null) { return node('div', { class: 'empty-state' }, node('div', { class: 'empty-symbol', 'aria-hidden': 'true' }, '✳'), node('h3', {}, title), node('p', {}, description), action); }
 function photoGrid(photos) {
   if (state.mode === 'live' && state.query && state.searching) return node('div', { class: 'loading-state', role: 'status' }, 'Checking for the moments you meant…');
+  if (state.mode === 'live' && state.query && state.searchClarification) {
+    const clarification = node('section', { class: 'clarification-panel', 'aria-label': 'Clarify who you mean' }, node('span', { class: 'eyebrow' }, 'A LITTLE CONTEXT GOES A LONG WAY'), node('h3', {}, 'Who did you have in mind?'), node('p', {}, state.searchClarification.message || 'A name needs a confirmed photo reference before we can look for that person.'));
+    for (const question of state.searchClarification.questions || []) {
+      const choices = question.choices || [];
+      clarification.append(node('h4', {}, question.term));
+      if (choices.length > 1 && !question.needsExamples) clarification.append(node('div', { class: 'clarification-choices' }, ...choices.map(choice => button(`${choice.name}${choice.qualifier ? ` · ${choice.qualifier}` : ''}`, { class: 'button-outline', onclick: () => searchPhotos({ ...state.searchBindings, [question.term]: choice.id }) }))));
+      else clarification.append(node('p', {}, choices.length ? `Open a photo, choose “Correct or add an annotation,” and confirm ${choices[0].name} in the frame. Then try this search again.` : `“${question.term}” does not match a confirmed trip member yet. Try a name from this trip, or use a visual description instead.`));
+    }
+    clarification.append(button('Back to photos', { class: 'button-dark', onclick: () => { resetFilters(); render(); } }));
+    return clarification;
+  }
   if (state.mode === 'live' && state.query && state.searchError) return empty('The search couldn’t finish.', state.searchError, button('Back to all moments', { class: 'button-outline', onclick: () => { resetFilters(); render(); } }));
   if (!photos.length) return empty(state.searchResults ? 'No verified matches, this time.' : 'A little too specific?', state.searchResults ? 'The visual model did not confirm a match among the closest candidates. Try another description. Uncertain and failed checks are not shown.' : 'No photos match these recorded labels. Try fewer words or another filter. Unanalyzed photos do not have search tags yet.', button('See all moments', { class: 'button-outline', onclick: () => { resetFilters(); state.view = 'memories'; render(); } }));
   const grid = node('div', { class: 'photo-grid' });
@@ -148,7 +248,9 @@ function photoGrid(photos) {
 }
 function coverageNotice() {
   const annotated = state.photos.filter(p => p.annotation).length;
-  return node('div', { class: 'coverage-note' }, node('strong', {}, `${annotated} of ${state.photos.length} photos have annotations. `), state.mode === 'demo' ? 'These are authored sample labels, not model findings. Counts below describe the demo fixtures.' : 'Only recorded labels contribute to rankings and statistics. Missing data stays unknown.');
+  if (state.mode === 'demo') return node('div', { class: 'coverage-note' }, node('strong', {}, `${annotated} of ${state.photos.length} photos have annotations. `), 'These are authored sample labels, not model findings. Counts below describe the demo fixtures.');
+  const indexed = state.photos.filter(p => p.indexed).length;
+  return node('div', { class: 'coverage-note coverage-pair' }, node('div', {}, node('strong', {}, `${indexed} / ${state.photos.length} search-ready`), node('span', {}, 'Direct image embeddings for your current provider.')), node('div', {}, node('strong', {}, `${annotated} / ${state.photos.length} with scene notes`), node('span', {}, 'Recorded observations power picks, activities & statistics.')));
 }
 
 function renderPlaces(content) {
@@ -206,12 +308,21 @@ function renderRecap(content) {
 function liveControls(content) {
   if (state.mode !== 'live' || !state.trip) return;
   const coverage = coverageNotice();
-  const bar = node('div', { class: 'live-controls' }, button('← All my trips', { class: 'button-outline', onclick: () => { state.trip = null; state.photos = []; state.selected.clear(); resetFilters(); loadLiveTrips(); } }), button(state.analyzing ? 'Analyzing…' : 'Analyze next 12 photos', { class: 'button-dark', disabled: state.analyzing || !state.photos.length, onclick: analyzeTrip }), node('a', { href: '/', class: 'live-workspace-link' }, 'Connect Gemini / Qwen ↗'));
+  const candidates = preparationCandidates();
+  const busy = state.analyzing || state.ai?.analyzing || state.ai?.indexing || state.ai?.searching;
+  const label = state.analyzing ? 'Preparing photos…' : !state.analysisChecked ? 'Checking preparation…' : state.pendingAnalysis ? 'Retry same preparation' : candidates.length ? `Prepare next ${Math.min(candidates.length, 12)} photos` : 'Your photos are prepared';
+  const bar = node('div', { class: 'live-controls' }, button('← All my trips', { class: 'button-outline', onclick: () => { state.trip = null; state.photos = []; state.selected.clear(); resetFilters(); loadLiveTrips(); } }), button(label, { id: 'prepare-photos', class: 'button-dark', disabled: busy || !state.analysisChecked || Boolean(state.aiError) || !state.photos.length || (!candidates.length && !state.pendingAnalysis), onclick: analyzeTrip }), node('span', { class: 'preparation-hint' }, state.ai?.configured ? 'Reuses saved work. You choose when to run AI.' : 'Connect AI to prepare or search this trip.'));
   if (!['people', 'recap'].includes(state.view)) content.append(coverage);
   content.append(bar);
+  if (state.analysisJob || state.analysisError) {
+    const job = state.analysisJob;
+    const heading = state.analysisError ? 'Preparation needs a check' : job.status === 'running' ? 'A little perspective, in progress…' : job.status === 'complete' ? 'Your latest preparation' : job.status === 'interrupted' ? 'Preparation was interrupted' : 'Preparation needs another look';
+    const metrics = job ? [`${job.embedded ?? 0} new image embeddings`, `${job.embeddingCached ?? 0} saved image embeddings reused`, `${job.processed ?? 0} scene notes saved`, `${job.cached ?? 0} scene notes reused`, ...(job.preservedUser ? [`${job.preservedUser} user edits preserved`] : [])].join(' · ') : '';
+    content.append(node('div', { id: 'analysis-notice', class: `analysis-notice${state.analysisError || job?.status === 'failed' || job?.status === 'interrupted' ? ' needs-attention' : ''}`, role: 'status' }, node('strong', {}, heading), node('p', {}, state.analysisError || job?.message || 'Saving image embeddings, then reviewing scenes. You can leave this page; preparation continues on this Mac.'), metrics ? node('p', { class: 'analysis-metrics' }, metrics) : null, button('Check preparation status ↻', { id: 'check-analysis', class: 'analysis-check', onclick: () => checkAnalysisJobs() })));
+  }
 }
 function render() {
-  renderNavigation(); renderHero(); updateSelection();
+  renderNavigation(); renderHero(); renderAIStatus(); updateSelection();
   const content = $('view-content'); content.replaceChildren();
   const browsingTrips = state.mode === 'live' && !state.trip;
   const photoView = ['memories', 'picks'].includes(state.view) && !browsingTrips;
@@ -220,8 +331,8 @@ function render() {
   $('filters').hidden = !photoView;
   $('select-all').hidden = !photoView && !(state.view === 'people' && state.person);
   $('search-disclosure').hidden = !photoView || (state.mode === 'demo' && !state.query);
-  $('search-disclosure').replaceChildren(state.mode === 'demo' ? 'Demo search uses sample tags. For real image understanding, open ' : 'Visual search sends your prompt and up to 12 photos to your connected provider; billing applies. Use Our people for confirmed names. Connect your model in ', node('a', { href: '/' }, 'image search'), '.');
-  $('search-form').querySelector('button').disabled = state.searching;
+  $('search-disclosure').textContent = state.mode === 'demo' ? 'Demo search uses sample tags. Open My trips for real image search.' : 'Search uses saved image embeddings, then checks up to 12 candidate photos against your full prompt. Your prompt and those photos go to your provider; billing applies. Confirm names in photo details to teach your trip who is who.';
+  $('search-form').querySelector('button').disabled = state.searching || (state.mode === 'live' && (state.analyzing || state.ai?.analyzing || state.ai?.indexing || state.ai?.searching));
   $('search-form').querySelector('button').setAttribute('aria-label', state.searching ? 'Searching your photos' : 'Search photos');
   $('search-form').querySelector('button span').textContent = state.searching ? '◌' : '↗';
   $('search-form').querySelector('button span').classList.toggle('search-spinner', state.searching);
@@ -289,7 +400,7 @@ function annotationEditor(photo) {
     const pending = (existing?.members || []).filter(m => m.status !== 'confirmed' && !chosen.has(m.memberId));
     try {
       await api(`/api/studio/trips/${encodeURIComponent(state.trip.id)}/annotations`, { annotations: [{ photoId: photo.id, revision: existing?.revision ?? 0, provenance: 'user', evidence: 'Reviewed and edited in photo details by a workspace user.', scene: scene.value || null, aesthetic: aesthetic.value === '' ? null : Number(aesthetic.value), facesClear: faces.value === '' ? null : faces.value === 'yes', smilesVisible: existing?.smilesVisible ?? null, activities: activities.value.split(',').map(s => s.trim()).filter(Boolean).slice(0, 20), vibes: existing?.vibes || [], members: [...chosen].map(memberId => ({ memberId, status: 'confirmed' })).concat(pending) }] });
-      $('photo-dialog').close(); await loadTrip(state.trip.id); announce('Correction saved. The trip’s counts and picks now use your annotation.');
+      $('photo-dialog').close(); resetFilters(); await loadTrip(state.trip.id); announce('Correction saved. The trip’s counts and picks now use your annotation.');
     } catch (e) { error.textContent = e.message; } finally { save.disabled = false; }
   });
   details.append(form); return details;
@@ -302,56 +413,84 @@ function renderTripList(content) {
 async function loadLiveTrips() {
   const generation = ++loadGeneration;
   state.loading = true; render();
-  try { const data = await api('/api/studio/trips'); if (state.mode !== 'live' || generation !== loadGeneration) return; state.trips = data.trips || []; state.loading = false; render(); }
+  try { const data = await api('/api/studio/trips'); if (state.mode !== 'live' || generation !== loadGeneration) return; state.trips = data.trips || []; state.loading = false; persistWorkspaceView(); render(); }
   catch (e) { if (generation !== loadGeneration) return; state.loading = false; render(); $('view-content').prepend(node('div', { class: 'error-inline', role: 'alert' }, e.message)); }
 }
-async function loadTrip(id) {
+async function loadTrip(id, { checkJobs = true } = {}) {
   const generation = ++loadGeneration;
+  const changedTrip = state.trip?.id !== id;
+  if (changedTrip) { resetFilters(); state.analysisJob = null; state.analysisError = null; state.analysisChecked = false; state.analyzing = false; state.pendingAnalysis = null; }
   state.loading = true; render();
   try {
     const data = await api(`/api/studio/trips/${encodeURIComponent(id)}`);
     if (state.mode !== 'live' || generation !== loadGeneration) return;
-    state.trip = data.trip; state.photos = data.photos || []; state.coverage = data.coverage; state.loading = false; state.selected = new Set([...state.selected].filter(id => state.photos.some(p => p.id === id))); loadSaved(); render();
+    state.trip = data.trip; state.photos = data.photos || []; state.coverage = data.coverage; state.loading = false; state.selected = new Set([...state.selected].filter(id => state.photos.some(p => p.id === id))); loadSaved(); persistWorkspaceView(); render();
+    state.pendingAnalysis = readPendingAnalysis();
+    if (checkJobs) await checkAnalysisJobs({ refreshPhotos: false });
   } catch (e) { if (generation !== loadGeneration) return; state.loading = false; render(); $('view-content').prepend(node('div', { class: 'error-inline', role: 'alert' }, e.message)); }
 }
 async function changeMode(mode) {
   if (state.mode === mode) return;
   loadGeneration++;
   if ($('photo-dialog').open) $('photo-dialog').close();
-  state.mode = mode; state.view = 'memories'; state.sort = 'recent'; $('photo-sort').value = 'recent'; resetFilters(); state.selected.clear();
-  if (mode === 'demo') { state.trip = demoTrip; state.photos = demoPhotos; state.loading = false; loadSaved(); render(); }
-  else { state.trip = null; state.photos = []; state.saved.clear(); await loadLiveTrips(); }
+  state.mode = mode; state.view = 'memories'; state.sort = 'recent'; $('photo-sort').value = 'recent'; resetFilters(); state.selected.clear(); state.analyzing = false; state.analysisJob = null; state.analysisError = null; state.analysisChecked = false; state.pendingAnalysis = null;
+  if (mode === 'demo') { state.trip = demoTrip; state.photos = demoPhotos; state.loading = false; loadSaved(); persistWorkspaceView(); render(); }
+  else { state.trip = null; state.photos = []; state.saved.clear(); await Promise.all([loadLiveTrips(), refreshAIStatus()]); }
 }
 async function analyzeTrip() {
   if (state.analyzing || !state.trip || state.mode !== 'live') return;
-  const candidates = state.photos.filter(p => !p.annotation).slice(0, 12);
-  if (!candidates.length) { announce('Every photo has an annotation. Existing assessments are preserved.'); return; }
-  const accepted = window.confirm(`Analyze ${candidates.length} photos?\n\nResized images will be sent to the Gemini or Qwen provider connected in your workspace. Provider billing and quota apply. Results can be uncertain; person matches require confirmation. Nothing will be sent to friends.`);
-  if (!accepted) return;
   const tripId = state.trip.id;
-  state.analyzing = true; render();
+  if (!await refreshAIStatus()) return;
+  if (!state.ai?.configured) { await openAIConnection(); return; }
+  await checkAnalysisJobs();
+  if (state.mode !== 'live' || state.trip?.id !== tripId || !state.analysisChecked || state.analyzing) return;
+  if (state.ai.analyzing || state.ai.indexing || state.ai.searching) { announce('Another model request is running. Let it finish before preparing this trip.'); return; }
+  const pending = state.pendingAnalysis;
+  const candidates = pending ? state.photos.filter(photo => pending.photoIds.includes(photo.id)) : preparationCandidates().slice(0, 12);
+  if (!candidates.length) { announce('These photos already have current image embeddings and scene notes. Your edits are preserved.'); return; }
+  const embeddingCount = candidates.filter(photo => !photo.indexed).length;
+  const sceneCount = candidates.filter(photo => !observationCurrent(photo)).length;
+  const accepted = window.confirm(`${pending ? 'Retry the same preparation request' : `Prepare ${candidates.length} photos`}?\n\n${embeddingCount} missing image embeddings and ${sceneCount} scene assessments are currently needed. This can make up to ${embeddingCount} image embedding calls and ${sceneCount ? '1' : '0'} vision calls to ${state.ai.providerLabel || state.ai.provider}. Saved work and your corrections are reused. Provider billing and quota apply. ${pending ? 'The previous outcome is unconfirmed; the same request ID will be reused so an existing job is not run twice.' : 'Photos are sent only to your selected provider, never to friends.'}`);
+  if (!accepted) return;
+  const request = pending || { requestId: crypto.randomUUID(), photoIds: candidates.map(p => p.id) };
+  const storageKey = analysisStorageKey(), identity = providerIdentity();
+  writePendingAnalysis(request, storageKey);
+  state.analyzing = true; state.analysisError = null; render();
   try {
-    const data = await api(`/api/studio/trips/${encodeURIComponent(tripId)}/analyze`, { requestId: crypto.randomUUID(), photoIds: candidates.map(p => p.id) });
-    if (data.job?.status === 'failed') throw new Error(data.job.message || 'Analysis could not complete. Check your provider connection.');
-    if (state.mode === 'live' && state.trip?.id === tripId) await loadTrip(tripId);
-    announce(`${data.job?.processed ?? candidates.length} photos processed. Review the annotations in photo details.`);
-  } catch (e) { announce(e.message); }
-  finally { state.analyzing = false; render(); }
+    const data = await api(`/api/studio/trips/${encodeURIComponent(tripId)}/analyze`, request);
+    if (state.mode !== 'live' || state.trip?.id !== tripId || identity !== providerIdentity()) return;
+    if (!data.job) throw new Error('No preparation result was returned. Check its saved status before retrying.');
+    state.analysisJob = data.job; state.analyzing = data.job.status === 'running';
+    if (!state.analyzing) writePendingAnalysis(null, storageKey);
+    await loadTrip(tripId, { checkJobs: false });
+    announce(data.job.message || 'Preparation status updated.');
+  } catch (error) {
+    if (state.mode === 'live' && state.trip?.id === tripId && identity === providerIdentity()) {
+      state.analysisError = `The response was interrupted: ${error.message} Checking the saved job before allowing another request.`;
+      await checkAnalysisJobs();
+      await loadTrip(tripId, { checkJobs: false });
+    }
+  } finally {
+    if (state.mode === 'live' && state.trip?.id === tripId && identity === providerIdentity()) { state.analyzing = state.analysisJob?.status === 'running'; render(); }
+    await refreshAIStatus();
+  }
 }
-async function searchPhotos() {
+async function searchPhotos(bindings = {}) {
   const query = $('photo-query').value.trim();
   if (state.searching) return;
   if (!query) { resetFilters(); render(); return; }
   if (state.mode === 'demo') { state.query = query; render(); return; }
   if (!state.trip || !state.photos.length) { announce('Add photos to a trip first.'); return; }
-  if (!window.confirm('Search these trip photos?\n\nYour prompt and up to 12 candidate images will be sent to the connected Gemini or Qwen provider. Billing and quota apply. Only photos with matching embeddings can be searched.')) return;
+  if (!state.ai?.configured || state.aiError) { state.query = query; state.searchResults = null; state.searchError = 'Connect your provider to search this trip.'; state.selected.clear(); render(); await openAIConnection(); return; }
+  if (!state.photos.some(photo => photo.indexed)) { state.query = query; state.searchResults = null; state.searchError = 'These photos need image embeddings for this provider. Use Prepare photos below to make them searchable.'; state.selected.clear(); render(); return; }
   const tripId = state.trip.id;
-  state.searching = true; state.query = query; state.searchResults = null; state.searchError = null; state.selected.clear(); render();
+  const identity = providerIdentity(), generation = ++searchGeneration;
+  state.searching = true; state.query = query; state.searchResults = null; state.searchError = null; state.searchClarification = null; state.searchBindings = bindings; state.selected.clear(); render();
   try {
-    const result = await api('/search', { query, photoIds: state.photos.map(p => p.id), context: false, verify: true });
-    if (state.mode === 'live' && state.trip?.id === tripId && state.query === query) { state.searchResults = result; state.sort = 'recent'; $('photo-sort').value = 'recent'; }
-  } catch (e) { if (state.trip?.id === tripId && state.query === query) { state.searchError = e.message; state.searchResults = null; } announce(e.message); }
-  finally { state.searching = false; render(); }
+    const result = await api('/search', { query, photoIds: state.photos.map(p => p.id), studioTripId: tripId, context: true, verify: true, bindings });
+    if (state.mode === 'live' && state.trip?.id === tripId && state.query === query && identity === providerIdentity() && generation === searchGeneration) { if (result.needsClarification) state.searchClarification = result; else state.searchResults = result; state.sort = 'recent'; $('photo-sort').value = 'recent'; }
+  } catch (e) { if (state.trip?.id === tripId && state.query === query && generation === searchGeneration) { state.searchError = e.message; state.searchResults = null; announce(e.message); } }
+  finally { if (generation === searchGeneration) { state.searching = false; render(); } }
 }
 async function openCreateTrip() {
   $('trip-error').textContent = ''; $('trip-form').reset(); state.importSelected.clear(); state.importPhotos = []; state.importLimit = 60;
@@ -384,6 +523,29 @@ document.querySelectorAll('[data-query]').forEach(b => b.addEventListener('click
 document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => $(b.dataset.close).close()));
 document.querySelectorAll('dialog').forEach(dialog => dialog.addEventListener('click', e => { const r = dialog.getBoundingClientRect(); if (e.target === dialog && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) dialog.close(); }));
 $('search-form').addEventListener('submit', e => { e.preventDefault(); searchPhotos(); });
+$('ai-connect').addEventListener('click', openAIConnection);
+$('ai-provider').addEventListener('change', updateProviderNote);
+$('ai-dialog').addEventListener('close', () => { $('ai-key').value = ''; });
+$('ai-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const key = $('ai-key').value.trim(), provider = $('ai-provider').value;
+  if (!key) return;
+  $('ai-submit').disabled = true; $('ai-disconnect').disabled = true; $('ai-error').textContent = ''; $('ai-key').value = '';
+  try {
+    await api('/connect', { key, provider });
+    await refreshAIStatus();
+    if (state.aiError) throw new Error('The key was submitted, but the workspace status could not be confirmed. Check the connection status before using it.');
+    $('ai-dialog').close(); render(); announce(`${state.ai.providerLabel || provider} key loaded. No model call has been made to validate it.`);
+    if (state.mode === 'live' && state.trip) await checkAnalysisJobs();
+  } catch (error) { $('ai-error').textContent = error.message; }
+  finally { $('ai-key').value = ''; $('ai-submit').disabled = false; $('ai-disconnect').disabled = false; }
+});
+$('ai-disconnect').addEventListener('click', async () => {
+  $('ai-submit').disabled = true; $('ai-disconnect').disabled = true; $('ai-key').value = ''; $('ai-error').textContent = '';
+  try { await api('/disconnect', {}); await refreshAIStatus(); $('ai-dialog').close(); render(); announce('API key cleared from server memory. Saved photo analysis stays available.'); }
+  catch (error) { $('ai-error').textContent = error.message; }
+  finally { $('ai-submit').disabled = false; $('ai-disconnect').disabled = false; }
+});
 $('photo-sort').addEventListener('change', e => { state.sort = e.target.value; render(); });
 $('select-all').addEventListener('click', () => { const photos = filteredPhotos(); if (photos.length && photos.every(p => state.selected.has(p.id))) photos.forEach(p => state.selected.delete(p.id)); else photos.forEach(p => state.selected.add(p.id)); updateSelection(); });
 $('clear-selection').addEventListener('click', () => { state.selected.clear(); updateSelection(); });
@@ -398,9 +560,26 @@ $('trip-form').addEventListener('submit', async e => {
   const names = [...new Set(String(data.get('members') || '').split(',').map(s => s.trim()).filter(Boolean))];
   try {
     const result = await api('/api/studio/trips', { title: String(data.get('title')).trim(), place: String(data.get('place') || '').trim(), startDate: data.get('startDate') || undefined, endDate: data.get('endDate') || undefined, members: names.map(name => ({ name })), photoIds: [...state.importSelected] });
-    $('trip-dialog').close(); state.mode = 'live'; state.view = 'memories'; resetFilters(); state.selected.clear(); await loadTrip(result.trip.id); announce('Your trip is saved. Open a photo to add context, or analyze your first set.');
+    $('trip-dialog').close(); state.mode = 'live'; state.trip = null; state.view = 'memories'; resetFilters(); state.selected.clear(); await refreshAIStatus(); await loadTrip(result.trip.id); announce('Your trip is saved. Open a photo to add context, or prepare your first set.');
   } catch (error) { $('trip-error').textContent = error.message; }
   finally { submit.disabled = false; }
 });
 let resizeTimer; window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(render, 180); });
-loadSaved(); render();
+async function pollWorkspace() {
+  if (state.mode !== 'live' || document.visibilityState !== 'visible') return;
+  await refreshAIStatus();
+  if (state.mode === 'live' && state.trip) await checkAnalysisJobs();
+}
+setInterval(pollWorkspace, 5000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') pollWorkspace(); });
+async function initialize() {
+  let previous;
+  try { previous = JSON.parse(sessionStorage.getItem('afterglow-view') || 'null'); } catch { /* Start with the demo if browser storage is unavailable. */ }
+  if (previous?.mode === 'live') {
+    state.mode = 'live'; state.trip = null; state.photos = []; state.loading = true; render();
+    await refreshAIStatus();
+    await loadLiveTrips();
+    if (state.mode === 'live' && previous.datasetId === state.ai?.datasetId && state.trips.some(trip => trip.id === previous.tripId)) await loadTrip(previous.tripId);
+  } else { loadSaved(); render(); }
+}
+initialize();

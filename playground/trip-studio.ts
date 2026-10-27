@@ -8,7 +8,7 @@ import { COLLECTION_LIMIT } from '@captured/core/current';
 
 // This is one local workspace. Trip membership is photo organization, not account access.
 export type StudioPhoto = {
-  id: string; name: string; capturedAt?: string | null;
+  id: string; name: string; indexed?: boolean; capturedAt?: string | null;
   place?: { lat: number; lon: number } | null;
 };
 const PhotoId = z.string().regex(/^[a-f0-9]{64}$/);
@@ -119,13 +119,13 @@ export function openTripStudio(datasetDir: string, getPhotos: () => readonly Stu
       const photo = available.get(photoId);
       if (!photo) return [];
       const place = photo.place && Number.isFinite(photo.place.lat) && Number.isFinite(photo.place.lon) && Math.abs(photo.place.lat) <= 90 && Math.abs(photo.place.lon) <= 180 ? photo.place : null;
-      return [{ id: photo.id, name: photo.name, image: `/photos/${photo.id}`, capturedAt: photo.capturedAt ?? null, place, annotation: observed.get(photoId) ?? null }];
+      return [{ id: photo.id, name: photo.name, image: `/photos/${photo.id}`, indexed: photo.indexed === true, capturedAt: photo.capturedAt ?? null, place, annotation: observed.get(photoId) ?? null }];
     });
     const covered = photos.filter(photo => photo.annotation !== null);
     return {
       trip: { ...value, photoCount: ids.length }, photos,
       coverage: {
-        totalPhotos: ids.length, availablePhotos: photos.length, unavailablePhotos: ids.length - photos.length,
+        indexedPhotos: photos.filter(photo => photo.indexed).length, totalPhotos: ids.length, availablePhotos: photos.length, unavailablePhotos: ids.length - photos.length,
         annotatedPhotos: covered.length, unannotatedPhotos: photos.length - covered.length,
         userAnnotatedPhotos: covered.filter(photo => photo.annotation!.provenance === 'user').length,
         modelAnnotatedPhotos: covered.filter(photo => photo.annotation!.provenance === 'model').length,

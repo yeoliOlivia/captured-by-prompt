@@ -36,6 +36,8 @@ Never turn aesthetic photo ranking into beauty scores, personality judgments, or
 - Demo photos, names, annotations, locations, and rankings are examples. They are not evidence that our models recognized that trip or those people.
 - Local trip-scoped annotations and their analysis coverage persist in SQLite; this is an organizer's workspace, not a production identity or membership service.
 - Explicit analysis requests accept at most 12 selected trip photos. Jobs persist request IDs, model/version, state, and saved/cached/protected/skipped counts; SQLite reservations prevent another local server from starting overlapping analysis work in that workspace.
+- Studio preparation now uses the existing Gemini/Qwen connection: it checkpoints missing image embeddings before running scene observations. The live UI exposes connection status, separate embedding/observation coverage, and saved job recovery. Provider changes retain separate indexes and clear stale search results.
+- Confirmed trip people become scoped context memories for search, with clarification for ambiguous names or missing reference photos. Search cannot widen beyond the current trip. Only the top 12 retrieved candidates are verified, so this is not an exhaustive “all matching photos” result yet.
 - Results are validated before saving as `schemaVersion: 1` annotations with a model/version, evidence summary, nullable visual judgments, and an edit revision. Concurrent user edits are preserved while unaffected results can still save.
 - Restart recovery marks jobs whose owning process has stopped as interrupted and never automatically repeats a paid request. Reusing a request ID returns its saved job; any new paid attempt must be explicit.
 - The existing workspace supplies real uploads, Gemini/Qwen image-embedding search, saved context, and cached trip-person checks through the current backend.
@@ -81,7 +83,7 @@ Preserve existing bundle recovery and never require a full collection to be rean
 
 Structured observations can cover visible activity, people/scenery composition, lighting, sharpness, face visibility, and duplicate groups.
 Require schema validation and per-field evidence; unsupported or ambiguous attributes remain unknown. Keep model suggestions separate from human corrections.
-The first local version protects the entire annotation once a user edits it, including an identity-only confirmation; later AI analysis skips that photo and reports it as protected, not cached. Separate per-field model observations and human overrides are future work.
+The first local version protects the entire annotation once a user edits it, including an identity-only confirmation; later scene analysis skips that photo and reports it as protected, not cached. A missing image embedding is still prepared so the photo remains searchable. Separate per-field model observations and human overrides are future work.
 Counts use confirmed labels or explicitly identified model estimates. Show “reviewed 80 of 200 photos,” not an unexplained “Mark: 42.”
 For appearances, count a person once per photo and expose burst duplicates; photo frequency does not measure time spent or attendance.
 For activity frequency, state whether the unit is photos or deduplicated moments, and do not infer “what we did most” from camera frequency alone.
