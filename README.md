@@ -75,6 +75,8 @@ How it works:
 - Export writes `sample-dataset/.exports/<trip>/<person>/`. It uses the full-size original when the source file is unchanged, otherwise the stored 1,024-pixel copy. All metadata is removed except the capture time. Review the folder before sending it.
 - A person who is a trip member cannot be deleted until they are removed from the trip.
 
+To measure recognition quality on a labelled public dataset, see the [trip pooling face test](docs/trip-pooling-face-test.md).
+
 Limits: identity comes from fallible vision-model judgments on whole images, not a face index; small, turned, or similar-looking people are often uncertain. Messaging apps often strip capture dates, so received copies may need to be added to the trip by hand.
 
 Context persists in `sample-dataset/.context.sqlite` (SQLite, owner-only permissions), independently of embeddings. It is ignored by Git and excluded from portable photo/embedding bundles. Back up personal context separately with the server stopped (or use SQLite's backup facilities). API keys remain in memory and are never stored in this database. Requires Node 22.13+ with `node:sqlite` support.
