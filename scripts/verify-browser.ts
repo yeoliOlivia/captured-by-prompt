@@ -27,13 +27,14 @@ try { browser=await chromium.launch({headless:true}); } catch(error) { await ser
 try {
  const page=await browser.newPage({viewport:{width:1200,height:950}});
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+ const go=async(screen:string)=>{await page.locator(`.nav button[data-go="${screen}"]`).click();};
  await page.goto(url+'/');
  await page.locator('#key').fill('test-only-key-not-a-real-key');await page.locator('#connect').click();
  await page.waitForFunction(()=>document.querySelector('#key-form').hidden);
  await page.locator('#prompt').fill('a dog');await page.locator('#search').click();
  await page.waitForFunction(()=>document.querySelector('#results-subtitle').textContent.includes('1 matches'));
  assert.equal(await page.locator('#gallery [data-similarity]').count(),0); assert.equal(await page.locator('#threshold-value').count(),0);
- await page.locator('#scan').click();await page.waitForFunction(()=>!document.querySelector('#scan').disabled);assert.equal(await page.locator('#gallery .photo').count(),1);
+ await go('library');await page.locator('#scan').click();await page.waitForFunction(()=>!document.querySelector('#scan').disabled);await go('search');assert.equal(await page.locator('#gallery .photo').count(),1);
  const before=texts;
  await page.locator('#threshold').fill('0');await page.waitForFunction(()=>document.querySelectorAll('#gallery .photo').length===3);assert.equal(texts,before);
  await page.locator('#threshold').fill('1');assert.equal(await page.locator('#gallery .photo').count(),1);
@@ -44,16 +45,16 @@ try {
  await page.route('**/context/save',async route=>{const response=await route.fetch();await new Promise(r=>setTimeout(r,1700));await route.fulfill({response});});
  await page.locator('#new-context').click();await page.locator('#memory-qualifier').fill('from college');await page.locator('#pick-photos').click();await page.locator('#picker-grid button').first().click();await page.locator('#picker-done').click();await page.locator('#save-memory').click();
  await page.waitForFunction(()=>document.querySelector('#context-used').textContent.includes('Mark'));
- await page.unroute('**/context/save');
+ await page.unroute('**/context/save');await go('search');
  assert.equal(await page.locator('#gallery .photo').count(),1);
  await page.locator('#uncertain').check();await page.locator('#threshold').fill('0');assert.equal(await page.locator('#gallery .photo').count(),3);await page.locator('#uncertain').uncheck();await page.locator('#threshold-reset').click();
- await page.locator('#add-memory').click();await page.locator('#memory-name').fill('Mark');await page.locator('#memory-qualifier').fill('from soccer');await page.locator('#pick-photos').click();await page.locator('#picker-grid button').nth(1).click();await page.locator('#picker-done').click();await page.locator('#save-memory').click();
- await page.waitForFunction(()=>document.querySelector('#memory-form').hidden);
+ await go('people');await page.locator('#add-memory').click();await page.locator('#memory-name').fill('Mark');await page.locator('#memory-qualifier').fill('from soccer');await page.locator('#pick-photos').click();await page.locator('#picker-grid button').nth(1).click();await page.locator('#picker-done').click();await page.locator('#save-memory').click();
+ await page.waitForFunction(()=>document.querySelector('#memory-form').hidden);await go('search');
  await page.locator('#search').click();await page.locator('#clarification').waitFor({state:'visible'});
  assert.equal(await page.locator('#context-choices button').count(),2);await page.locator('#context-choices button').filter({hasText:'college'}).click();
  await page.waitForFunction(()=>document.querySelector('#clarification').hidden && document.querySelector('#context-used').textContent.includes('college'));
  await page.screenshot({path:join(dir,'desktop.png'),fullPage:true});
- await page.reload();await page.waitForFunction(()=>document.querySelectorAll('.memory-row').length===2);
+ await page.reload();await page.waitForFunction(()=>document.querySelectorAll('.memory-row:not(.add)').length===2);
  assert.equal(await page.locator('#gallery .photo').count(),0);assert(await page.locator('#threshold').isDisabled());
  await page.locator('#prompt').fill('failure');await page.locator('#search').click();await page.waitForFunction(()=>document.querySelector('#notice').dataset.error==='true');
  assert.equal(await page.locator('#gallery .photo').count(),0);
@@ -76,9 +77,9 @@ try {
  await page.locator('#threshold').fill('0');assert.equal(await page.locator('#gallery .photo').count(),0);
  await page.setViewportSize({width:390,height:844});
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth));
- await page.locator('#memory-panel summary').click();await page.screenshot({path:join(dir,'mobile.png'),fullPage:true});
+ await go('people');await page.screenshot({path:join(dir,'mobile.png'),fullPage:true});
  // Audit: a failed state request must not permanently lock uploads.
- await page.locator('#reset').click();
+ await go('search');await page.locator('#reset').click();
  let failState=true;
  await page.route('**/state',async route=>{if(failState)await route.abort();else await route.continue();});
  await page.locator('#files').setInputFiles({name:'retry.png',mimeType:'image/png',buffer:await sharp({create:{width:20,height:20,channels:3,background:'yellow'}}).png().toBuffer()});

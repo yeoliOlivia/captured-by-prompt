@@ -81,7 +81,17 @@ describe('trip photo pooling', () => {
     // Editing one person's references re-checks the trip photos for them.
     await post('/context/save', { ...sam, photoIds: [byName('sam.jpg').id, byName('alex.jpg').id] });
     expect((await server.inject({ url: `/trips/${trip.id}`, headers: { host: 'localhost' } })).json().pending).toBe(3);
-    expect((await post('/context/delete', { id: sam.id, revision: 2 })).statusCode).toBe(409);
+    // Deleting a member takes them off the trip; the trip itself and Alex's cached answers survive.
+    const otherTrip = (await post('/context/save', { kind: 'event', name: 'Yosemite', startDate: '2026-08-01', endDate: '2026-08-02', memberIds: [sam.id] })).json().memory;
+    expect((await post('/context/delete', { id: sam.id, revision: 2 })).json()).toEqual({ deleted: true, trips: ['Tahoe', 'Yosemite'] });
+    const memories = (await server.inject({ url: '/context', headers: { host: 'localhost' } })).json().memories;
+    expect(memories.map((m: any) => m.name).sort()).toEqual(['Alex', 'Tahoe', 'Yosemite']);
+    expect(memories.find((m: any) => m.id === trip.id)).toMatchObject({ memberIds: [alex.id], revision: trip.revision + 1, startDate: '2026-07-04' });
+    expect(memories.find((m: any) => m.id === otherTrip.id)).toMatchObject({ memberIds: [], revision: otherTrip.revision + 1 });
+    summary = (await server.inject({ url: `/trips/${trip.id}`, headers: { host: 'localhost' } })).json();
+    expect(summary.members.map((m: any) => m.name)).toEqual(['Alex']);
+    expect(summary.pending).toBe(0);
+    expect(summary.members[0].suggested.map((p: any) => p.name)).toEqual(['s1.jpg']);
 
     const exported = (await post(`/trips/${trip.id}/export`, { memberId: alex.id })).json();
     expect(exported).toMatchObject({ written: 1, originals: 1, copies: 0 });

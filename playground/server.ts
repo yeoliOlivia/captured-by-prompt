@@ -150,6 +150,8 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
   server.setErrorHandler((e, _, reply) => reply.code((e as { statusCode?: number }).statusCode === 413 ? 413 : 400).send({ message: (e as { statusCode?: number }).statusCode === 413 ? 'Choose photos smaller than 25 MB each.' : 'Could not process that request. Check the input and try again.' }));
   server.get('/', async (_, reply) => reply.type('text/html').send((await readFile(resolve(directory, 'index.html'), 'utf8')).replace('__SESSION__', session)));
   server.get('/app.js', async (_, reply) => reply.type('text/javascript').send(await readFile(resolve(directory, 'app.js'), 'utf8')));
+  server.get('/styles.css', async (_, reply) => reply.type('text/css').send(await readFile(resolve(directory, 'styles.css'), 'utf8')));
+  server.get('/theme.js', async (_, reply) => reply.type('text/javascript').send(await readFile(resolve(directory, 'theme.js'), 'utf8')));
   server.get('/search-utils.js', async (_, reply) => reply.type('text/javascript').send(await readFile(resolve(directory, '../packages/core/src/strictness.js'), 'utf8')));
   server.get('/context', async () => ({memories:contextStore.list()}));
   server.post('/context/save', async (req,reply) => {
@@ -160,7 +162,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
   server.post('/context/delete', async (req,reply) => {
     if (searching) return reply.code(409).send({message:'Wait for this search to finish.'});
     const {id,revision} = z.object({id:z.string().uuid(),revision:z.number().int().positive()}).parse(req.body);
-    try { contextStore.remove(id,revision); verifiedQueries.clear(); resolvedQueries.clear(); return {deleted:true}; }
+    try { const removed = contextStore.remove(id,revision); verifiedQueries.clear(); resolvedQueries.clear(); return {deleted:true, ...removed}; }
     catch(e) { return reply.code(409).send({message:(e as Error).message}); }
   });
   server.get('/photos/:id', async (req, reply) => {
@@ -326,6 +328,12 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
   };
   // Photos taken on a member's own phone are not suggested back to them.
   const ownPhoto = (member: Memory, p: Photo) => !!p.contributor && matches(member, p.contributor);
+  // How many photos a draft date range would include, so the trip editor can show it as the dates change.
+  server.get('/trips/preview', async (req, reply) => {
+    const dates = z.object({ start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).safeParse(req.query);
+    if (!dates.success) return reply.code(400).send({ message: 'Choose a start and end date.' });
+    return { photos: photos.filter(p => tripDay(p) >= dates.data.start && tripDay(p) <= dates.data.end).length, undated: photos.filter(p => !p.capturedAt).length };
+  });
   server.get('/trips/:id', async (req, reply) => {
     const found = tripOf((req.params as any).id);
     if (!found) return reply.code(404).send({ message: 'Trip not found.' });

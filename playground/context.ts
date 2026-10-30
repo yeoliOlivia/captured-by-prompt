@@ -100,12 +100,24 @@ export function openContext(path:string) {
       db.prepare('INSERT INTO memories VALUES (?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(memory.id,JSON.stringify(memory));
       return memory;
     },
+    // Deleting a person also takes them off every trip they belong to, in one transaction. The trips keep
+    // their dates and photos; other members' cached answers stay valid because their revisions do not change.
     remove(id:string, revision:number) {
-      const old = list().find(m=>m.id===id);
+      const all = list(), old = all.find(m=>m.id===id);
       if (!old || old.revision !== revision) throw new Error('This memory changed. Reload it before deleting.');
-      if (old.kind === 'person' && list().some(m=>m.memberIds.includes(id))) throw new Error('Remove this person from their trips before deleting them.');
-      db.prepare('DELETE FROM memories WHERE id=?').run(id);
-      db.prepare('DELETE FROM photo_people WHERE memoryId=?').run(id);
+      const trips = all.filter(m=>m.memberIds.includes(id));
+      const now = new Date().toISOString();
+      db.exec('BEGIN');
+      try {
+        for (const trip of trips) {
+          const updated:Memory = {...trip, memberIds:trip.memberIds.filter(m=>m!==id), revision:trip.revision+1, updatedAt:now};
+          db.prepare('UPDATE memories SET data=? WHERE id=?').run(JSON.stringify(updated),trip.id);
+        }
+        db.prepare('DELETE FROM memories WHERE id=?').run(id);
+        db.prepare('DELETE FROM photo_people WHERE memoryId=?').run(id);
+        db.exec('COMMIT');
+      } catch (e) { db.exec('ROLLBACK'); throw e; }
+      return { trips: trips.map(t=>t.name) };
     },
     // Cached "who is in this photo" results. A row is current only for the person's current revision,
     // so editing their reference photos re-checks that person without discarding anyone else.
