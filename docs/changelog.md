@@ -10,7 +10,7 @@ What changed in the app, newest first, in plain words. Add a line here when you 
 - The model key moved into a settings sheet behind the gear button. It opens by itself when no key is loaded.
 - Photos show in a tight 4-column grid. File names only appear on hover.
 - Trip cards, people tiles and photos grow slightly when you hover over them.
-- All colours and spacing live as tokens in `playground/styles.css`.
+- All colours and spacing live as tokens at the top of `playground/styles.css`.
 
 **People**
 - People show as round face tiles (their first reference photo), with tabs for People, Trips, Places and Other, and a name filter.
@@ -27,6 +27,9 @@ What changed in the app, newest first, in plain words. Add a line here when you 
 - Click any photo to open it large, with its folder, capture date and which phone it came from. From there you can add it as a reference photo for a person, place or trip.
 - People used in a search show as face chips. Click one to edit that person.
 - The reference photo picker has a search box that filters by file or folder name (for example `lfwtrip-refs`), with no model call.
+
+**Colour**
+- Switched to a pastel lavender palette on a lighter cream background. Buttons are mid lavender with dark text, selected tabs and toggles are light lavender, and links and outlines use a deeper lavender so they stay readable. Dark mode uses the same lavender on a plum-black background.
 
 **Fixes**
 - Buttons that need a model key (Search, Find people) used to grey out with no explanation. They now say a key is needed and open the key sheet.
