@@ -177,3 +177,17 @@ dialog.wide{max-width:900px}
 .trip-cover img{width:100%;height:100%;object-fit:cover;display:block}
 .trip-body{display:flex;flex-direction:column;gap:4px;padding:14px 16px 16px}
 .trip-body strong{font-size:15px}
+
+/* Center the trip strip when the cards don't fill it (auto margins collapse to 0 once it overflows),
+   and lift trip cards, people tiles and photos slightly on hover. */
+.trip-strip{padding:12px 8px 18px}
+.trip-card:first-child{margin-left:auto}
+.trip-card:last-child{margin-right:auto}
+.trip-card,.memory-row,.photo-image{transition:transform .16s ease,box-shadow .16s ease}
+.photo{z-index:0}
+.photo:hover{z-index:1}
+@media(hover:hover){
+  .trip-card:hover,.memory-row:hover{transform:scale(1.04);box-shadow:0 10px 24px rgba(16,18,17,.16)}
+  .photo-image:hover{transform:scale(1.05);box-shadow:0 10px 24px rgba(16,18,17,.22)}
+}
+@media(prefers-reduced-motion:reduce){.trip-card,.memory-row,.photo-image{transition:none}}
