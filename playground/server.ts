@@ -128,7 +128,9 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
   let imageCalls = 0, queryCalls = 0, verificationCalls = 0;
   const verifiedQueries = new Map<string, ReturnType<typeof validateVerification>>();
   const queries = new Map<string, number[]>();
-  const expose = (p: Photo) => ({ id: p.id, name: p.name, image: `/photos/${p.id}`, indexed: !!embeddingFor(p), capturedAt: p.capturedAt ?? null, contributor: p.contributor ?? null });
+  // folder: the source folder inside the collection, so the reference picker can filter by it.
+  const expose = (p: Photo) => ({ id: p.id, name: p.name, image: `/photos/${p.id}`, indexed: !!embeddingFor(p), capturedAt: p.capturedAt ?? null, contributor: p.contributor ?? null,
+    folder: p.source ? p.source.path.split(/[\\/]/).slice(0, -1).join('/') : '' });
   let tagTask: Promise<void> | null = null, tagging: { tripId: string; done: number; total: number } | null = null, tagError = '', identifyCalls = 0;
   server.addHook('onRequest', async (request, reply) => {
     const host = request.headers.host ?? '';
@@ -344,6 +346,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
     return {
       trip: { id: trip.id, name: trip.name, qualifier: trip.qualifier, startDate: trip.startDate, endDate: trip.endDate },
       photos: inTrip.length, pending: pendingPhotos(found).length,
+      cover: [...inTrip].sort((a, b) => tripDay(a).localeCompare(tripDay(b)))[0]?.id ?? null,
       undated: photos.filter(p => !p.capturedAt && !linked.has(p.id)).length,
       contributors: [...new Set(inTrip.map(p => p.contributor).filter(Boolean))],
       tagging: tagging?.tripId === trip.id ? tagging : null, error: tagError,

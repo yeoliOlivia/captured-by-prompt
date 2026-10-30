@@ -21,7 +21,7 @@ function gallery(photos, ranked = false, keepPage = false) {
   if (!photos.length) { const empty = document.createElement('p'); empty.className = 'empty'; empty.textContent = ranked ? 'No close matches. Move the slider toward Broader, or include uncertain assessments after a visual check.' : 'Add some photos to start your collection.'; $('gallery').append(empty); }
   photos.slice(0,visiblePhotos).forEach((photo, index) => {
     const figure = document.createElement('figure'); figure.className = 'photo';
-    const wrap = document.createElement('div'); wrap.className = 'photo-image';
+    const wrap = document.createElement('button'); wrap.type = 'button'; wrap.className = 'photo-image'; wrap.setAttribute('aria-label',`Open ${photo.name}`); wrap.onclick = () => openPhoto(photo);
     const img = document.createElement('img'); img.src = photo.image; img.alt = `Photo ${index + 1}`; img.loading = 'lazy'; wrap.append(img);
     const badge = document.createElement('span'); badge.className = 'rank'; badge.textContent = ranked ? `#${index + 1}` : photo.indexed ? 'Ready' : 'Not analyzed'; wrap.append(badge);
     const caption = document.createElement('figcaption'); caption.textContent = photo.name;
@@ -143,7 +143,8 @@ async function runSearch(payload) {
     $('requirements').hidden = !result.verified;
     $('requirements').textContent = result.verified ? result.requirements.map((r,i)=>`${i+1}. ${r}`).join(' • ') : '';
     $('context-used').hidden = !result.contextUsed?.length;
-    $('context-used').textContent = result.contextUsed?.length ? 'Using reference context (similarity to query or reference photos): '+result.contextUsed.map(m=>`${m.name}${m.qualifier ? ' ('+m.qualifier+')' : ''}`).join(', ') : '';
+    $('context-used').replaceChildren();
+    if (result.contextUsed?.length) { $('context-used').append('Using as reference: '); for (const used of result.contextUsed) { const m = memories.find(x=>x.id===used.id) ?? used; const chip = document.createElement('button'); chip.type = 'button'; chip.className = 'chip'; if (m.photoIds?.length) chip.append(avatar(m,22)); chip.append(`${m.name}${m.qualifier ? ' ('+m.qualifier+')' : ''}`); chip.title = 'Review or edit this memory'; chip.onclick = () => { const saved = memories.find(x=>x.id===m.id); if (saved) { cancelClarification(); openMemory(saved); } }; $('context-used').append(chip); } }
     renderMatches();
     notice(result.verified ? 'Showing matches at your chosen strictness. You can include uncertain assessments; failed checks stay hidden. Personal reference similarity helps select candidates, but does not establish identity.' : 'Showing matches at your chosen strictness. Broaden the slider to see more.');
   } catch(e) { if (sequence === searchSequence) { emptySearch('Search did not finish. Try again; no unfiltered photos are shown.'); notice(e.message,true); if (pendingSearch) $('clarification').hidden = false; } }
@@ -266,12 +267,16 @@ function updateSelection() {
   for (const id of selectedPhotos) { const img = document.createElement('img'); img.src = `/photos/${id}`; img.alt = 'Selected reference'; $('memory-preview').append(img); }
 }
 function renderPicker() {
-  const photos = $('picker-results').checked ? galleryPhotos : state?.photos ?? [];
+  // Filter by file or folder name without any model call; search results keep their ranking, the collection is newest first.
+  const query = $('picker-search').value.trim().toLowerCase();
+  const source = $('picker-results').checked ? galleryPhotos : [...(state?.photos ?? [])].sort((a,b) => (b.capturedAt ?? '').localeCompare(a.capturedAt ?? ''));
+  const photos = source.filter(p => !query || `${p.folder ?? ''}/${p.name}`.toLowerCase().includes(query));
   $('picker-grid').replaceChildren();
+  if (!photos.length) { const p = document.createElement('p'); p.className = 'mode-note'; p.textContent = query ? 'No photos match that name.' : 'No photos to choose from yet.'; $('picker-grid').append(p); }
   for (const photo of photos.slice(0,pickerLimit)) {
     const button = document.createElement('button'); button.type = 'button'; button.setAttribute('aria-pressed',String(selectedPhotos.has(photo.id))); button.setAttribute('aria-label',`Select ${photo.name}`);
     const img = document.createElement('img'); img.src = photo.image; img.loading = 'lazy'; img.alt = '';
-    const name = document.createElement('span'); name.textContent = photo.name;
+    const name = document.createElement('span'); name.textContent = `${photo.folder ? photo.folder+'/' : ''}${photo.name}`;
     button.append(img,name); button.onclick = () => {
       if (selectedPhotos.has(photo.id)) selectedPhotos.delete(photo.id);
       else if (selectedPhotos.size < 24) selectedPhotos.add(photo.id);
@@ -284,6 +289,7 @@ function renderPicker() {
 $('pick-photos').onclick = () => { $('photo-picker').hidden = false; pickerLimit = 60; renderPicker(); };
 $('picker-more').onclick = () => { pickerLimit += 60; renderPicker(); };
 $('picker-results').onchange = () => { pickerLimit = 60; renderPicker(); };
+$('picker-search').oninput = () => { pickerLimit = 60; renderPicker(); };
 $('picker-done').onclick = () => { $('photo-picker').hidden = true; };
 $('add-memory').onclick = () => { cancelClarification(); openMemory(null); };
 $('close-memory').onclick = () => { $('memory-form').hidden = true; };
@@ -347,11 +353,13 @@ function renderTripChoices() {
   for (const trip of trips) { const option = document.createElement('option'); option.value = trip.id; option.textContent = `${trip.name}${trip.qualifier ? ' · '+trip.qualifier : ''} (${trip.startDate} to ${trip.endDate})`; $('trip-select').append(option); }
   if (trips.some(t=>t.id===current)) $('trip-select').value = current;
   $('trip-tag').disabled = $('trip-edit').disabled = !trips.length;
+  renderTripStrip().catch(()=>{});
   if (!trips.length) { $('trip-summary').textContent = 'No trips with members yet. Add a trip or event with dates and members under My context.'; $('trip-members').replaceChildren(); }
   else if ($('trip-panel').open) loadTrip().catch(e=>notice(e.message,true));
 }
 async function loadTrip() {
   const id = $('trip-select').value; if (!id) return;
+  for (const card of $('trip-strip').children) card.setAttribute('aria-pressed',String(card.dataset.id === id));
   const response = await fetch(`/trips/${id}`); const trip = await response.json();
   if (!response.ok) throw new Error(trip.message || 'Could not load trip.');
   const progress = trip.tagging ? ` Checking ${trip.tagging.done} of ${trip.tagging.total}…` : '';
@@ -429,3 +437,54 @@ async function previewDates() {
   catch { line.textContent = ''; }
 }
 for (const id of ['memory-start','memory-end','memory-kind']) $(id).addEventListener('change',previewDates);
+
+// Trips as a scrollable strip of cards; clicking one selects it for pooling below.
+async function renderTripStrip() {
+  const trips = memories.filter(m=>m.kind==='event' && m.memberIds?.length);
+  const strip = $('trip-strip'); strip.hidden = !trips.length;
+  if (!trips.length) { strip.replaceChildren(); return; }
+  const summaries = await Promise.all(trips.map(t => fetch(`/trips/${t.id}`).then(r => r.ok ? r.json() : null).catch(() => null)));
+  strip.replaceChildren();
+  trips.forEach((trip, i) => {
+    const card = document.createElement('button'); card.type = 'button'; card.className = 'trip-card'; card.dataset.id = trip.id;
+    card.setAttribute('aria-pressed',String($('trip-select').value === trip.id));
+    const cover = document.createElement('div'); cover.className = 'trip-cover';
+    const coverId = summaries[i]?.cover ?? trip.photoIds[0];
+    if (coverId) { const img = document.createElement('img'); img.src = `/photos/${coverId}`; img.alt = ''; img.loading = 'lazy'; cover.append(img); }
+    const body = document.createElement('div'); body.className = 'trip-body';
+    const name = document.createElement('strong'); name.textContent = memoryTitle(trip);
+    const sub = document.createElement('small'); sub.className = 'mono'; sub.textContent = `${trip.startDate} to ${trip.endDate}${summaries[i] ? ` · ${summaries[i].photos} photos` : ''}`;
+    const faces = document.createElement('div'); faces.className = 'faces';
+    for (const id of trip.memberIds.slice(0,6)) { const person = memories.find(m=>m.id===id); if (person) faces.append(avatar(person,28)); }
+    body.append(name,sub,faces); card.append(cover,body);
+    card.onclick = () => { $('trip-select').value = trip.id; loadTrip().catch(e=>notice(e.message,true)); $('trip-panel').scrollIntoView({behavior:'smooth',block:'start'}); };
+    strip.append(card);
+  });
+}
+
+// A photo opened from the grid: what it is, which memories use it, and a way to add it as a reference photo.
+let openedPhoto = null;
+function openPhoto(photo) {
+  openedPhoto = photo;
+  $('photo-title').textContent = photo.name; $('photo-large').src = photo.image; $('photo-large').alt = photo.name;
+  $('photo-meta').textContent = [photo.folder || null, photo.capturedAt ? photo.capturedAt.slice(0,16).replace('T',' ') : 'no capture date', photo.contributor ? `from ${photo.contributor}'s phone` : null, photo.indexed ? 'analyzed' : 'not analyzed'].filter(Boolean).join(' · ');
+  const refs = memories.filter(m=>m.photoIds.includes(photo.id));
+  $('photo-refs').replaceChildren(refs.length ? 'Reference photo for: ' : 'Not used as a reference photo yet.');
+  for (const m of refs) { const chip = document.createElement('button'); chip.type = 'button'; chip.className = 'chip'; chip.append(avatar(m,22),memoryTitle(m)); chip.onclick = () => { $('photo-dialog').close(); cancelClarification(); openMemory(m); }; $('photo-refs').append(chip); }
+  const select = $('photo-person'); select.replaceChildren();
+  for (const m of memories.filter(m=>m.kind!=='preference' && !m.photoIds.includes(photo.id))) { const option = document.createElement('option'); option.value = m.id; option.textContent = `${memoryTitle(m)} · ${m.kind}`; select.append(option); }
+  $('photo-actions').hidden = !select.children.length; $('photo-error').textContent = '';
+  $('photo-dialog').showModal();
+}
+$('close-photo').onclick = () => $('photo-dialog').close();
+$('photo-add-ref').onclick = async () => {
+  const m = memories.find(x=>x.id===$('photo-person').value); if (!m || !openedPhoto) return;
+  if (m.photoIds.length >= 24) { $('photo-error').textContent = 'That memory already has 24 reference photos.'; return; }
+  $('photo-add-ref').disabled = true;
+  try {
+    await request('/context/save',{...m, photoIds:[...m.photoIds, openedPhoto.id]});
+    await loadMemories(); notice(`Added as a reference photo for ${m.name}.`);
+    if (searchActive) emptySearch('Context changed. Search again to refresh your matches.'); else signature = '';
+    openPhoto(openedPhoto);
+  } catch(e) { $('photo-error').textContent = e.message; } finally { $('photo-add-ref').disabled = false; }
+};
