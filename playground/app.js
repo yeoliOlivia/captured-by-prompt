@@ -64,7 +64,9 @@ async function refresh(preserveClarification = false) {
   $('index').disabled = !state.configured || state.indexing || state.searching || uploading || state.indexed === state.total;
   $('index').textContent = state.indexed ? 'Analyze remaining' : 'Analyze photos';
   $('pause').hidden = !state.indexing;
-  $('search').disabled = !state.configured || !state.indexed || state.indexing || state.searching || searching || uploading;
+  // Without a key the button stays clickable and opens the connection sheet, so it never looks broken.
+  $('search').disabled = (state.configured && !state.indexed) || state.indexing || state.searching || searching || uploading;
+  $('search').title = state.configured ? '' : 'Load a model key first';
   $('files').disabled = uploading || state.indexing || state.searching;
   $('disconnect').disabled = state.indexing || state.searching;
   $('folder').textContent = state.datasetDir;
@@ -150,7 +152,7 @@ async function runSearch(payload) {
   } catch(e) { if (sequence === searchSequence) { emptySearch('Search did not finish. Try again; no unfiltered photos are shown.'); notice(e.message,true); if (pendingSearch) $('clarification').hidden = false; } }
   finally { searching = false; $('search').textContent = 'Search'; await refresh().catch(e=>notice(e.message,true)); }
 }
-$('search-form').onsubmit = e => { e.preventDefault(); if ($('search').disabled) return; cancelClarification(); $('memory-form').hidden = true; runSearch({query:$('prompt').value,verify:$('verify').checked,context:$('use-context').checked,bindings:{}}); };
+$('search-form').onsubmit = e => { e.preventDefault(); if ($('search').disabled) return; if (!state?.configured) { notice('Load your Gemini or Qwen key to search. Your photos and saved analysis are still here.',true); $('settings').showModal(); return; } cancelClarification(); $('memory-form').hidden = true; runSearch({query:$('prompt').value,verify:$('verify').checked,context:$('use-context').checked,bindings:{}}); };
 $('skip-context').onclick = () => { if (!pendingSearch) return; const payload = {...pendingSearch,context:false,bindings:{}}; cancelClarification(); runSearch(payload); };
 $('cancel-context').onclick = () => { cancelClarification(); emptySearch('Search canceled. Search again or choose Browse collection.'); $('memory-form').hidden = true; notice('Search canceled.'); };
 $('reset').onclick = () => { searchSequence++; searchActive = false; try {sessionStorage.removeItem('captured-active-query');} catch {} cancelClarification(); lastSearch = null; $('context-used').hidden = true; if (!searchActive) { showingResults = false; signature = ''; $('results-title').textContent = 'Your collection'; } $('prompt').value = ''; $('requirements').hidden = true; renderMatches(); notice(''); refresh().catch(e=>notice(e.message,true)); };
