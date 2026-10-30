@@ -160,7 +160,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
   server.post('/context/delete', async (req,reply) => {
     if (searching) return reply.code(409).send({message:'Wait for this search to finish.'});
     const {id,revision} = z.object({id:z.string().uuid(),revision:z.number().int().positive()}).parse(req.body);
-    try { contextStore.remove(id,revision); verifiedQueries.clear(); resolvedQueries.clear(); return {deleted:true}; }
+    try { const removed = contextStore.remove(id,revision); verifiedQueries.clear(); resolvedQueries.clear(); return {deleted:true, ...removed}; }
     catch(e) { return reply.code(409).send({message:(e as Error).message}); }
   });
   server.get('/photos/:id', async (req, reply) => {

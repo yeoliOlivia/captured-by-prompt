@@ -73,7 +73,7 @@ How it works:
 - One vision request checks up to 12 trip photos for all members at once, using up to two reference photos per member. People are labelled P1, P2 and so on, so names and relationships are not sent for this step. Each answer is present, absent, or uncertain with visible evidence. Results are saved in `.context.sqlite` per photo, person revision, and vision model, so rerunning costs nothing, and editing one person's reference photos re-checks only what is missing for them.
 - A person is not suggested photos taken on their own phone. Uncertain matches are listed separately and exported only when chosen.
 - Export writes `sample-dataset/.exports/<trip>/<person>/`. It uses the full-size original when the source file is unchanged, otherwise the stored 1,024-pixel copy. All metadata is removed except the capture time. Review the folder before sending it.
-- A person who is a trip member cannot be deleted until they are removed from the trip.
+- Deleting a person also removes them from any trips they belong to. The trips keep their dates and photos; the other members' saved checks stay valid.
 
 Limits: identity comes from fallible vision-model judgments on whole images, not a face index; small, turned, or similar-looking people are often uncertain. Messaging apps often strip capture dates, so received copies may need to be added to the trip by hand.
 

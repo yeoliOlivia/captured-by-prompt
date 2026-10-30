@@ -44,7 +44,10 @@ async function refresh(preserveClarification = false) {
   const response = await fetch('/state'); if (!response.ok) throw new Error('Could not load collection.');
   const nextState = await response.json();
   if (sequence !== refreshSequence) return;
+  const wasConfigured = state?.configured;
   state = nextState;
+  // Loading or forgetting a key changes whether trip photos can be checked; the trip panel must not stay stale.
+  if (state.configured !== wasConfigured && $('trip-panel').open) loadTrip().catch(()=>{});
   const nextIdentity = JSON.stringify([state.datasetId,state.provider,state.model,state.dimensions]);
   const changed = stateIdentity && (stateIdentity !== nextIdentity || contextVersion !== state.contextVersion);
   if (stateIdentity && (stateIdentity !== nextIdentity || (contextVersion !== state.contextVersion && !preserveClarification && !savingContext))) {
@@ -269,11 +272,13 @@ $('memory-form').onsubmit = async e => {
 };
 $('delete-memory').onclick = async () => {
   if (!editingMemory) return;
-  if ($('delete-memory').textContent !== 'Confirm delete') { $('delete-memory').textContent = 'Confirm delete'; return; }
+  const trips = memories.filter(m=>m.memberIds?.includes(editingMemory.id));
+  const confirmText = trips.length ? `Delete ${editingMemory.name} and remove them from ${trips.length === 1 ? trips[0].name : `${trips.length} trips`}?` : 'Confirm delete';
+  if ($('delete-memory').textContent !== confirmText) { $('delete-memory').textContent = confirmText; return; }
   try {
-    await request('/context/delete',{id:editingMemory.id,revision:editingMemory.revision});
+    const result = await request('/context/delete',{id:editingMemory.id,revision:editingMemory.revision});
     $('memory-form').hidden = true; cancelClarification(); if (searchActive) emptySearch('Context changed. Search again to refresh your matches.'); else signature = '';
-    await loadMemories(); await refresh(); notice('Memory deleted. Photos and their embeddings remain saved.');
+    await loadMemories(); await refresh(); notice(result.trips?.length ? `Memory deleted and removed from ${result.trips.join(', ')}. Photos and their embeddings remain saved.` : 'Memory deleted. Photos and their embeddings remain saved.');
   } catch(e) { $('context-error').textContent = e.message; }
 };
 loadMemories().catch(e=>notice(e.message,true));
@@ -309,9 +314,11 @@ async function loadTrip() {
   const response = await fetch(`/trips/${id}`); const trip = await response.json();
   if (!response.ok) throw new Error(trip.message || 'Could not load trip.');
   const progress = trip.tagging ? ` Checking ${trip.tagging.done} of ${trip.tagging.total}…` : '';
-  $('trip-summary').textContent = `${trip.photos} trip photos from ${trip.contributors.length ? trip.contributors.join(', ') : 'unknown phones'} · ${trip.pending} not yet checked · ${trip.undated} photos in the collection have no capture date.${progress}${trip.error ? ' '+trip.error : ''}`;
+  // Say why the button is off: a greyed button with no reason reads as a page that is still loading.
+  const needsKey = !!trip.pending && !trip.tagging && !state?.configured;
+  $('trip-summary').textContent = `${trip.photos} trip photos from ${trip.contributors.length ? trip.contributors.join(', ') : 'unknown phones'} · ${trip.pending} not yet checked · ${trip.undated} photos in the collection have no capture date.${progress}${trip.error ? ' '+trip.error : ''}${needsKey ? ' Load a provider key under Model connection to check who is in them.' : ''}`;
   $('trip-tag').disabled = !!trip.tagging || !trip.pending || !state?.configured;
-  $('trip-tag').textContent = trip.tagging ? 'Checking…' : trip.pending ? `Find people in ${trip.pending} photos (${Math.ceil(trip.pending/12)} requests)` : 'All trip photos checked';
+  $('trip-tag').textContent = trip.tagging ? 'Checking…' : needsKey ? 'Load a model key to find people' : trip.pending ? `Find people in ${trip.pending} photos (${Math.ceil(trip.pending/12)} requests)` : 'All trip photos checked';
   clearTimeout(tripTimer); if (trip.tagging) tripTimer = setTimeout(()=>loadTrip().catch(()=>{}),1500);
   const includeUncertain = $('trip-uncertain').checked;
   $('trip-members').replaceChildren();
