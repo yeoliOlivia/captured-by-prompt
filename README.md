@@ -2,6 +2,21 @@
 
 Search selected photos using image embeddings, optional visual verification, and user-confirmed personal context. The browser and Expo iOS app now use the **same backend**. Neither active client uses generated captions, keyword matching, or Jev ranking.
 
+**Quick start:** `npm install`, then `npm run dev:web`, open http://127.0.0.1:8790 and paste a Gemini key into the sheet that opens.
+
+**The web app at a glance**
+
+| Screen | What it's for |
+| --- | --- |
+| Search | Describe a photo in your own words. Broader/Stricter slider, context and visual-check toggles. Click a photo to open it and add it as a reference. |
+| People | Face tiles for the people, trips and places you've confirmed. Click one to edit it. |
+| Trips | A scrollable strip of trips. Pick one to find who's in each friend's photos and export a folder per person. |
+| Library | Add photos, reload photo folders, and analyze new photos. |
+
+The gear button holds the model key, and the moon/sun button switches between light and dark.
+
+**What changed recently:** see the [changelog](docs/changelog.md). Plans live in [Ideas and roadmap](docs/ideas-and-roadmap.md), and recognition testing in the [trip pooling face test](docs/trip-pooling-face-test.md).
+
 ## Run the workspace
 
 Use Node 24 LTS and run `npm install` at the repo root.
@@ -43,7 +58,7 @@ The original API in `apps/api` and legacy core retrieval contracts remain for hi
 
 ## Local browser frontend
 
-Run `npm run dev:web` and open http://127.0.0.1:8790. Upload photos, load a Gemini API key, analyze, and search with image embeddings. Collection copies and embeddings persist in [`sample-dataset`](sample-dataset/README.md); the key stays in memory. This frontend uses image similarity without captions or keyword matching.
+Run `npm run dev:web` and open http://127.0.0.1:8790. Add photos under **Library**, load a Gemini API key from the gear button, analyze, and search with image embeddings. Collection copies and embeddings persist in [`sample-dataset`](sample-dataset/README.md); the key stays in memory. This frontend uses image similarity without captions or keyword matching.
 
 ### Shared search controls and personal context
 
