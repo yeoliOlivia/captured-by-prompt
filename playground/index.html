@@ -21,16 +21,16 @@
 </section>
 
 <section class="screen" data-screen="people" hidden>
-<div class="screen-head"><h1>My people</h1><button id="add-memory" class="primary" type="button">Add memory</button></div>
+<div class="screen-head"><h1>My people</h1><div class="tools"><div class="tabs" id="memory-tabs"><button type="button" data-tab="person" aria-pressed="true">People <span>0</span></button><button type="button" data-tab="event">Trips <span>0</span></button><button type="button" data-tab="place">Places <span>0</span></button><button type="button" data-tab="other">Other <span>0</span></button></div><input id="memory-filter" type="search" placeholder="Filter by name" aria-label="Filter by name"><button id="add-memory" class="primary" type="button">Add memory</button></div></div>
 <p class="screen-intro">People, places, trips, objects, and preferences you have confirmed. Saved on this Mac; separate from model training. You can review, correct, or delete anything here.</p>
 <details id="memory-panel" class="key-panel" open><summary>My context</summary><div id="memory-list" class="memory-list"></div>
 <form id="memory-form" class="panel" hidden style="margin-top:18px"><h2 id="memory-heading">Add memory</h2><div class="context-fields">
 <label>Kind<select id="memory-kind"><option value="person">Person</option><option value="place">Place</option><option value="event">Trip or event</option><option value="object">Object or pet</option><option value="preference">Preference</option></select></label><label>Name<input id="memory-name" required maxlength="100" placeholder="Mark or the Japan trip"></label>
 <label>Distinguishing label<input id="memory-qualifier" maxlength="150" placeholder="From college, or Japan 2025"></label><label>Also called (comma separated)<input id="memory-aliases" maxlength="2000" placeholder="Mark Chen, Mark from college"></label>
 <label class="wide">What should it remember?<textarea id="memory-notes" rows="3" maxlength="2000" placeholder="Facts you know; for group photos, describe which person you mean."></textarea></label>
-<label>From date (optional)<input id="memory-start" type="date"></label><label>Until date (optional)<input id="memory-end" type="date"></label></div>
+<label>From date (optional)<input id="memory-start" type="date"></label><label>Until date (optional)<input id="memory-end" type="date"></label><p id="date-count" class="mono wide" hidden></p></div>
 <label class="check block"><input id="memory-me" type="checkbox">This is me</label>
-<div id="memory-members-field" hidden><p>Who was on this trip? Their photos from each other's phones can be pooled. Add each person first, with clear reference photos.</p><div id="memory-members" class="tools"></div></div>
+<div id="memory-members-field" hidden><p>Who was on this trip? Their photos from each other's phones can be pooled. Add each person first, with clear reference photos.</p><div id="memory-members"><p class="mono">On this trip</p><div id="members-on" class="tiles"></div><p id="members-on-empty" class="mode-note">Nobody yet. Tap + on a person below.</p><p class="mono" id="members-off-label">Not on this trip</p><div id="members-off" class="tiles"></div></div></div>
 <p>Choose photos that you confirm contain this person, place, or object, or belong to this event. For people, use clear solo photos where possible. This prototype uses reference images, not a dedicated face index. For a trip or event, photos captured between its dates are included automatically when they carry a capture date; choose photos here to include ones without a date.</p>
 <div id="memory-preview"></div><div class="tools" style="margin-top:10px"><button id="pick-photos" type="button" class="secondary">Choose reference photos</button><span id="selection-count" class="mode-note"></span></div>
 <div id="photo-picker" hidden><label class="check block"><input id="picker-results" type="checkbox">Only browse current search results</label><div class="picker" id="picker-grid"></div><button id="picker-more" type="button" class="textbutton">More photos</button><button id="picker-done" type="button" class="secondary">Done choosing</button></div>
@@ -41,7 +41,7 @@
 <div class="screen-head"><h1>Trips</h1></div>
 <p class="screen-intro">After a trip, find the photos on each friend's phone that include the others. Put everyone's trip photos in sample-dataset/&lt;trip&gt;/&lt;person&gt;/ and reload the photo folders in Library. Create the trip under People as a trip or event with dates and members. One visual check covers up to 12 photos for all members; results are saved. Nothing is sent to anyone: export writes a folder per person for you to review.</p>
 <details id="trip-panel" class="key-panel" open><summary>Trip photo pooling</summary>
-<div class="panel"><div class="tools"><label for="trip-select">Trip</label><select id="trip-select" class="secondary"></select><button id="trip-tag" class="primary" type="button">Find people in trip photos</button></div>
+<div class="panel"><div class="tools"><label for="trip-select">Trip</label><select id="trip-select" class="secondary"></select><button id="trip-tag" class="primary" type="button">Find people in trip photos</button><button id="trip-edit" class="secondary" type="button">Edit trip</button><button id="trip-new" class="secondary" type="button">New trip</button></div>
 <p id="trip-summary" class="mode-note"></p><label class="check block"><input id="trip-uncertain" type="checkbox"><span>Also show and export uncertain matches.</span></label></div><div id="trip-members"></div></details>
 </section>
 

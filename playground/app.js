@@ -199,15 +199,48 @@ async function loadMemories() {
   const response = await fetch('/context'); if (!response.ok) throw new Error('Could not load personal context.');
   memories = (await response.json()).memories;
   renderTripChoices();
-  $('memory-list').replaceChildren();
-  if (!memories.length) { const p = document.createElement('p'); p.textContent = 'No saved context yet. Add it here or when a search asks.'; $('memory-list').append(p); }
-  for (const m of memories) {
-    const row = document.createElement('div'); row.className = 'memory-row';
-    const text = document.createElement('div'); text.textContent = `${m.name}${m.qualifier ? ' · '+m.qualifier : ''}${m.isMe ? ' (me)' : ''}`;
-    const sub = document.createElement('small'); sub.textContent = `${m.kind} · ${m.photoIds.length} reference photos · confirmed by you · ${new Date(m.updatedAt).toLocaleDateString()}`; text.append(sub);
-    const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'textbutton'; edit.textContent = 'Review / edit'; edit.onclick = ()=>{cancelClarification(); openMemory(m);};
-    row.append(text,edit); $('memory-list').append(row);
+  renderMemoryList();
+}
+// The People screen: one tab per kind, a face tile per person, a wide card per trip.
+let memoryTab = 'person', memoryFilter = '';
+const kindTab = m => m.kind === 'person' || m.kind === 'event' || m.kind === 'place' ? m.kind : 'other';
+const memoryTitle = m => `${m.name}${m.qualifier ? ' · '+m.qualifier : ''}`;
+function avatar(m, size) {
+  if (m.photoIds[0]) { const img = document.createElement('img'); img.src = `/photos/${m.photoIds[0]}`; img.alt = ''; img.className = 'avatar'; img.style.width = img.style.height = `${size}px`; return img; }
+  const span = document.createElement('span'); span.className = 'avatar initial'; span.setAttribute('aria-hidden','true');
+  span.textContent = (m.name.trim()[0] ?? '?').toUpperCase(); span.style.width = span.style.height = `${size}px`; span.style.fontSize = `${Math.round(size*0.36)}px`; return span;
+}
+function renderMemoryList() {
+  for (const button of document.querySelectorAll('#memory-tabs button')) { button.querySelector('span').textContent = memories.filter(m=>kindTab(m)===button.dataset.tab).length; button.setAttribute('aria-pressed',String(button.dataset.tab===memoryTab)); }
+  const shown = memories.filter(m=>kindTab(m)===memoryTab && (!memoryFilter || [m.name,m.qualifier,...m.aliases].some(a=>a.toLowerCase().includes(memoryFilter))));
+  const list = $('memory-list'); list.replaceChildren(); list.dataset.tab = memoryTab;
+  for (const m of shown) {
+    const card = document.createElement('button'); card.type = 'button'; card.className = 'memory-row'; card.setAttribute('aria-label',`Review or edit ${memoryTitle(m)}`);
+    card.onclick = ()=>{cancelClarification(); openMemory(m);};
+    const text = document.createElement('div'); text.className = 'memory-text';
+    const name = document.createElement('strong'); name.textContent = memoryTitle(m);
+    const sub = document.createElement('small');
+    if (m.kind === 'event') {
+      const members = m.memberIds.map(id=>memories.find(p=>p.id===id)).filter(Boolean);
+      sub.textContent = `${m.startDate && m.endDate ? `${m.startDate} to ${m.endDate}` : 'No dates'} · ${members.length} people`;
+      const faces = document.createElement('div'); faces.className = 'faces'; for (const p of members.slice(0,8)) faces.append(avatar(p,32));
+      text.append(name,sub,faces); card.append(text);
+    } else {
+      const trips = memories.filter(t=>t.memberIds?.includes(m.id)).length;
+      sub.textContent = `${m.photoIds.length} ${m.photoIds.length === 1 ? 'ref' : 'refs'}${m.kind === 'person' ? ` · ${trips} ${trips === 1 ? 'trip' : 'trips'}` : ` · ${m.kind}`}`;
+      if (m.isMe) { const me = document.createElement('span'); me.className = 'me'; me.textContent = 'me'; card.append(me); }
+      text.append(name,sub); card.append(avatar(m,88),text);
+    }
+    list.append(card);
   }
+  const add = document.createElement('button'); add.type = 'button'; add.className = 'memory-row add';
+  add.textContent = memoryTab === 'person' ? 'Add a person' : memoryTab === 'event' ? 'New trip' : memoryTab === 'place' ? 'Add a place' : 'Add memory';
+  add.onclick = () => startMemory(memoryTab === 'other' ? 'object' : memoryTab);
+  list.append(add);
+}
+function startMemory(kind) {
+  cancelClarification(); openMemory(null);
+  $('memory-kind').value = kind; $('memory-kind').dispatchEvent(new Event('change')); renderMemberChoices([]);
 }
 function openMemory(memory, question = null) {
   editingMemory = memory; editingTerm = question?.term ?? null; selectedPhotos = new Set(memory?.photoIds ?? []);
@@ -225,7 +258,7 @@ function openMemory(memory, question = null) {
   $('delete-memory').hidden = !memory;
   $('delete-memory').textContent = 'Delete memory';
   $('save-memory').textContent = pendingSearch ? 'Save and continue search' : 'Save memory';
-  updateSelection(); $('memory-name').focus();
+  updateSelection(); previewDates(); $('memory-name').focus();
 }
 function updateSelection() {
   $('selection-count').textContent = ` ${selectedPhotos.size} selected (up to 24)`;
@@ -284,18 +317,26 @@ $('delete-memory').onclick = async () => {
 loadMemories().catch(e=>notice(e.message,true));
 
 function renderMemberChoices(selected) {
-  $('memory-members').replaceChildren();
+  // Face tiles in two rows; the + or − badge moves a person between them. Hidden checkboxes carry the value.
   const people = memories.filter(m=>m.kind==='person');
-  if (!people.length) { const p = document.createElement('span'); p.textContent = 'No saved people yet.'; $('memory-members').append(p); }
+  const on = $('members-on'), off = $('members-off'); on.replaceChildren(); off.replaceChildren();
+  if (!people.length) { const p = document.createElement('span'); p.className = 'mode-note'; p.textContent = 'No saved people yet. Add each person first, with clear reference photos.'; off.append(p); }
   for (const person of people) {
-    const label = document.createElement('label'); label.className = 'check';
-    const box = document.createElement('input'); box.type = 'checkbox'; box.value = person.id; box.checked = selected.includes(person.id);
-    const text = document.createElement('span'); text.textContent = `${person.name}${person.qualifier ? ' · '+person.qualifier : ''}${person.isMe ? ' (me)' : ''}`;
-    label.append(box,text); $('memory-members').append(label);
+    const checked = selected.includes(person.id);
+    const tile = document.createElement('label'); tile.className = 'member-tile';
+    const box = document.createElement('input'); box.type = 'checkbox'; box.value = person.id; box.checked = checked;
+    box.setAttribute('aria-label',checked ? `Remove ${person.name} from this trip` : `Add ${person.name} to this trip`);
+    box.onchange = () => renderMemberChoices([...$('memory-members').querySelectorAll('input:checked')].map(i=>i.value));
+    const badge = document.createElement('span'); badge.className = 'badge'; badge.setAttribute('aria-hidden','true');
+    const name = document.createElement('span'); name.className = 'name'; name.textContent = `${memoryTitle(person)}${person.isMe ? ' (me)' : ''}`;
+    tile.append(box,avatar(person,64),badge,name); (checked ? on : off).append(tile);
   }
+  $('members-on-empty').hidden = !!on.children.length;
+  $('members-off-label').hidden = !off.children.length;
   $('memory-members-field').hidden = $('memory-kind').value !== 'event';
+  $('memory-me').closest('label').hidden = $('memory-kind').value !== 'person';
 }
-$('memory-kind').addEventListener('change',()=>{ $('memory-members-field').hidden = $('memory-kind').value !== 'event'; });
+$('memory-kind').addEventListener('change',()=>{ $('memory-members-field').hidden = $('memory-kind').value !== 'event'; $('memory-me').closest('label').hidden = $('memory-kind').value !== 'person'; });
 
 // Trip photo pooling
 let tripTimer = null;
@@ -305,7 +346,7 @@ function renderTripChoices() {
   $('trip-select').replaceChildren();
   for (const trip of trips) { const option = document.createElement('option'); option.value = trip.id; option.textContent = `${trip.name}${trip.qualifier ? ' · '+trip.qualifier : ''} (${trip.startDate} to ${trip.endDate})`; $('trip-select').append(option); }
   if (trips.some(t=>t.id===current)) $('trip-select').value = current;
-  $('trip-tag').disabled = !trips.length;
+  $('trip-tag').disabled = $('trip-edit').disabled = !trips.length;
   if (!trips.length) { $('trip-summary').textContent = 'No trips with members yet. Add a trip or event with dates and members under My context.'; $('trip-members').replaceChildren(); }
   else if ($('trip-panel').open) loadTrip().catch(e=>notice(e.message,true));
 }
@@ -324,7 +365,9 @@ async function loadTrip() {
   $('trip-members').replaceChildren();
   for (const member of trip.members) {
     const section = document.createElement('div'); section.className = 'trip-member';
-    const heading = document.createElement('strong'); heading.textContent = `${member.name}${member.qualifier ? ' · '+member.qualifier : ''}`;
+    const heading = document.createElement('div'); heading.className = 'trip-head';
+    const title = document.createElement('strong'); title.textContent = `${member.name}${member.qualifier ? ' · '+member.qualifier : ''}`;
+    const saved = memories.find(m=>m.id===member.id); heading.append(saved ? avatar(saved,40) : '', title);
     const sub = document.createElement('p'); sub.className = 'mode-note'; sub.textContent = `${member.suggested.length} photos from others' phones include them · ${member.uncertain.length} uncertain`;
     const thumbs = document.createElement('div'); thumbs.className = 'trip-thumbs';
     for (const photo of [...member.suggested, ...(includeUncertain ? member.uncertain : [])]) {
@@ -371,3 +414,18 @@ $('close-settings').onclick = () => $('settings').close();
 // Without a key nothing can be analyzed or searched, so the connection sheet opens once on load.
 let askedForKey = false;
 const askForKey = setInterval(() => { if (!state) return; clearInterval(askForKey); if (!state.configured && !askedForKey) { askedForKey = true; $('settings').showModal(); } },200);
+
+// Trip editing: tabs and filter on the People screen, shortcuts from the Trips screen, and a live count
+// of the photos a draft date range would include.
+for (const button of document.querySelectorAll('#memory-tabs button')) button.onclick = () => { memoryTab = button.dataset.tab; renderMemoryList(); };
+$('memory-filter').oninput = () => { memoryFilter = $('memory-filter').value.trim().toLowerCase(); renderMemoryList(); };
+$('trip-edit').onclick = () => { const trip = memories.find(m=>m.id===$('trip-select').value); if (trip) { cancelClarification(); openMemory(trip); } };
+$('trip-new').onclick = () => startMemory('event');
+async function previewDates() {
+  const start = $('memory-start').value, end = $('memory-end').value, line = $('date-count');
+  line.hidden = $('memory-kind').value !== 'event' || !start || !end || start > end;
+  if (line.hidden) return;
+  try { const result = await (await fetch(`/trips/preview?start=${start}&end=${end}`)).json(); line.textContent = `${result.photos} photos fall in these dates · ${result.undated} undated`; }
+  catch { line.textContent = ''; }
+}
+for (const id of ['memory-start','memory-end','memory-kind']) $(id).addEventListener('change',previewDates);

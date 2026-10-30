@@ -54,7 +54,7 @@ try {
  assert.equal(await page.locator('#context-choices button').count(),2);await page.locator('#context-choices button').filter({hasText:'college'}).click();
  await page.waitForFunction(()=>document.querySelector('#clarification').hidden && document.querySelector('#context-used').textContent.includes('college'));
  await page.screenshot({path:join(dir,'desktop.png'),fullPage:true});
- await page.reload();await page.waitForFunction(()=>document.querySelectorAll('.memory-row').length===2);
+ await page.reload();await page.waitForFunction(()=>document.querySelectorAll('.memory-row:not(.add)').length===2);
  assert.equal(await page.locator('#gallery .photo').count(),0);assert(await page.locator('#threshold').isDisabled());
  await page.locator('#prompt').fill('failure');await page.locator('#search').click();await page.waitForFunction(()=>document.querySelector('#notice').dataset.error==='true');
  assert.equal(await page.locator('#gallery .photo').count(),0);

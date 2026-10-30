@@ -328,6 +328,12 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
   };
   // Photos taken on a member's own phone are not suggested back to them.
   const ownPhoto = (member: Memory, p: Photo) => !!p.contributor && matches(member, p.contributor);
+  // How many photos a draft date range would include, so the trip editor can show it as the dates change.
+  server.get('/trips/preview', async (req, reply) => {
+    const dates = z.object({ start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).safeParse(req.query);
+    if (!dates.success) return reply.code(400).send({ message: 'Choose a start and end date.' });
+    return { photos: photos.filter(p => tripDay(p) >= dates.data.start && tripDay(p) <= dates.data.end).length, undated: photos.filter(p => !p.capturedAt).length };
+  });
   server.get('/trips/:id', async (req, reply) => {
     const found = tripOf((req.params as any).id);
     if (!found) return reply.code(404).send({ message: 'Trip not found.' });
