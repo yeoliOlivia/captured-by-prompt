@@ -15,6 +15,8 @@
     "test:web": "node --import tsx playground/verify.ts",
     "test:browser": "node --import tsx scripts/verify-browser.ts",
     "test:bundles": "python3 scripts/test_bundle_dataset.py",
+    "test:faces:build": "uv run --with pillow python scripts/build-face-test.py",
+    "test:faces:score": "node --import tsx scripts/score-face-test.ts",
     "dev:api": "node --import tsx scripts/start-server.ts",
     "dev:mobile": "npm run start --workspace @captured/mobile",
     "typecheck": "npm run typecheck --workspaces --if-present && npm run typecheck:server",
@@ -37,7 +39,7 @@
     "react-dom": "19.2.3",
     "react-native": "0.86.3",
     "tsx": "^4.20.0",
-    "typescript": "~5.9.3",
+    "typescript": "~6.0.3",
     "vitest": "^5.0.1"
   },
   "overrides": {
