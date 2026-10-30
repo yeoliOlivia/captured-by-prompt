@@ -10,7 +10,7 @@ Use Node 24 LTS and run `npm install` at the repo root.
 - **Browser and phone:** `npm run dev:lan` instead. This serves the same workspace, with authenticated phone access on your trusted Wi-Fi. Don't start both commands on the same port.
 - **Mobile UI:** in another terminal, run `npm run dev:mobile` and open the project in a matching Expo development client or Expo Go version. iOS native runtime support must match Expo SDK 57.
 
-`npm run dev:api` is an alias for the current shared backend. Connect Gemini or Qwen and load its key in the browser's Model connection panel. Provider keys stay in server memory. The phone uses that connection; paid usage depends on the provider account, and no free-tier promise is made.
+`npm run dev:api` is an alias for the current shared backend. Connect Gemini or Qwen and load its key in the browser's Model connection sheet (the gear button in the top bar; it opens by itself until a key is loaded). The web app has four screens in the top bar: Search, People, Trips, and Library, plus a light/dark toggle that follows the system setting until you change it. Provider keys stay in server memory. The phone uses that connection; paid usage depends on the provider account, and no free-tier promise is made.
 
 For phone setup, enter your Mac's LAN address (for example `http://192.168.1.20:8790`) in mobile Settings. Paste the workspace token from `sample-dataset/.mobile-token` into the token field. This private file is created automatically by `dev:lan`, has owner-only permissions, and is ignored by Git. It is **not** a model API key. The token grants access to this single-owner workspace, so don't share it or expose the development server publicly. Local HTTP is intended for trusted development networks; remote hosting needs HTTPS and proper account isolation.
 
@@ -54,16 +54,16 @@ The browser app uses Gemini Embedding 2 at **3,072 dimensions** (or a separate h
 - With **Use my saved context** enabled, the connected provider interprets the query into visual content and personal references. This costs one generation request per new query per server session. Ordinary visual queries continue without a personal-memory lookup or automatic visual verification.
 - Exact aliases resolve known entities. Unknown or ambiguous references pause search before embedding or verification. Choose an existing memory (an unknown phrase becomes an alias) or create one with photos; the original query resumes. Ambiguous choices apply only to that search, so two people called Mark keep distinct identities. A user can explicitly search visually without personal context instead.
 - After resolution, one additional cached generation request translates relevant confirmed facts into a visual search query (for example, “my old apartment” plus “red kitchen”). Personal searches retrieve candidates using that grounded visual query and the first two reference-image embeddings per entity, then check the top 12 against the **original** query and relevant confirmed facts. Up to two reference images per entity are sent to the vision model. Saved reference-photo associations are supplied as confirmed evidence. Unrelated memories are not sent. The model cannot create or edit memories automatically.
-- Review, edit, and delete memories in **My context**. Stale edits are rejected rather than overwriting another tab's changes. Editing/deleting invalidates cached visual checks. The app is currently a **single-owner local prototype**, not a multi-account service.
+- Review, edit, and delete memories under **People**. Stale edits are rejected rather than overwriting another tab's changes. Editing/deleting invalidates cached visual checks. The app is currently a **single-owner local prototype**, not a multi-account service.
 
 ### Trip photo pooling (browser app)
 
 After a trip, find the photos on each friend's phone that include the other friends, and prepare a folder of them per person. This supports a manual trip test run by one organizer on one machine; nothing is sent to anyone.
 
-1. Put each person's trip photos in `sample-dataset/<trip>/<person>/` (for example `sample-dataset/tahoe/alex/`), then click **Reload photo folders**. The `<person>` folder name records whose phone a photo came from.
-2. Under **My context**, add each friend as a person with clear reference photos. The folder name should match the person's name or an alias.
+1. Put each person's trip photos in `sample-dataset/<trip>/<person>/` (for example `sample-dataset/tahoe/alex/`), then click **Reload photo folders** under **Library**. The `<person>` folder name records whose phone a photo came from.
+2. Under **People**, add each friend as a person with clear reference photos. The folder name should match the person's name or an alias.
 3. Add the trip as a **Trip or event** with start and end dates, and tick its members.
-4. Open **Trip photo pooling**, choose the trip, and click **Find people in trip photos**.
+4. Open **Trips**, choose the trip, and click **Find people in trip photos**.
 5. Review each person's suggestions and click **Export for <name>**.
 
 How it works:

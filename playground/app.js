@@ -75,8 +75,8 @@ async function refresh(preserveClarification = false) {
   if (!searchActive) $('results-subtitle').textContent = `${state.total} saved photos · ${state.indexed} searchable`;
   if (changed) await loadMemories();
 }
-$('key-form').onsubmit = async e => { e.preventDefault(); $('connect').disabled = true; try { await request('/connect', { key: $('key').value, provider: $('provider').value }); $('key').value = ''; if (searchActive) emptySearch('Run your search again with the connected provider.'); if (!searchActive) { showingResults = false; signature = ''; $('results-title').textContent = 'Your collection'; } $('requirements').hidden = true; notice('Key loaded. Analyze your photos to make them searchable.'); await refresh(); $('key-panel').open = false; } catch(e) { notice(e.message,true); } finally { $('connect').disabled = false; } };
-$('disconnect').onclick = async () => { try { await request('/disconnect',{}); await refresh(); $('key-panel').open = true; notice('Key forgotten. Saved photos and embeddings are still here.'); } catch(e) { notice(e.message,true); } };
+$('key-form').onsubmit = async e => { e.preventDefault(); $('connect').disabled = true; try { await request('/connect', { key: $('key').value, provider: $('provider').value }); $('key').value = ''; if (searchActive) emptySearch('Run your search again with the connected provider.'); if (!searchActive) { showingResults = false; signature = ''; $('results-title').textContent = 'Your collection'; } $('requirements').hidden = true; notice('Key loaded. Analyze your photos to make them searchable.'); await refresh(); $('settings').close(); } catch(e) { notice(e.message,true); } finally { $('connect').disabled = false; } };
+$('disconnect').onclick = async () => { try { await request('/disconnect',{}); await refresh(); notice('Key forgotten. Saved photos and embeddings are still here.'); } catch(e) { notice(e.message,true); } };
 $('index').onclick = async () => { $('index').disabled = true; try { await request('/index',{}); notice('Analyzing images with the selected provider. Completed photos are saved as we go.'); await refresh(); } catch(e) { notice(e.message,true); } };
 $('pause').onclick = async () => { try { await request('/pause',{}); notice('Pausing after the current photo finishes.'); } catch(e) { notice(e.message,true); } };
 let lastSearch = null, pendingSearch = null, memories = [], editingMemory = null, editingTerm = null, selectedPhotos = new Set(), pickerLimit = 60;
@@ -211,7 +211,7 @@ async function loadMemories() {
 }
 function openMemory(memory, question = null) {
   editingMemory = memory; editingTerm = question?.term ?? null; selectedPhotos = new Set(memory?.photoIds ?? []);
-  $('memory-panel').open = true; $('memory-form').hidden = false; $('photo-picker').hidden = true; $('context-error').textContent = '';
+  showScreen('people'); $('memory-form').hidden = false; $('photo-picker').hidden = true; $('context-error').textContent = '';
   $('memory-heading').textContent = memory ? 'Edit memory' : 'Add memory';
   $('memory-kind').value = memory?.kind ?? question?.kind ?? 'person';
   $('memory-name').value = memory?.name ?? (question?.term === 'me' ? '' : question?.term ?? '');
@@ -350,3 +350,24 @@ $('trip-tag').onclick = async () => {
   try { const result = await request(`/trips/${$('trip-select').value}/tag`,{}); if (result.tagging) notice(`Checking ${result.photos} trip photos in ${result.requests} visual requests. Results are saved as they finish.`); await loadTrip(); }
   catch(e) { notice(e.message,true); $('trip-tag').disabled = false; }
 };
+
+// Screens and theme. The page is one document; the top bar shows one screen at a time.
+function showScreen(name) {
+  for (const screen of document.querySelectorAll('[data-screen]')) screen.hidden = screen.dataset.screen !== name;
+  for (const button of document.querySelectorAll('.nav button')) { if (button.dataset.go === name) button.setAttribute('aria-current','page'); else button.removeAttribute('aria-current'); }
+  try { sessionStorage.setItem('captured-screen',name); } catch {}
+  if (name === 'people' || name === 'trips') loadMemories().catch(e=>notice(e.message,true));
+  window.scrollTo({top:0});
+}
+for (const button of document.querySelectorAll('[data-go]')) button.onclick = () => showScreen(button.dataset.go);
+try { const saved = sessionStorage.getItem('captured-screen'); if (saved && document.querySelector(`[data-screen="${saved}"]`)) showScreen(saved); } catch {}
+$('theme-toggle').onclick = () => {
+  const dark = document.documentElement.dataset.theme ? document.documentElement.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  document.documentElement.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('captured-theme',document.documentElement.dataset.theme); } catch {}
+};
+$('open-settings').onclick = () => $('settings').showModal();
+$('close-settings').onclick = () => $('settings').close();
+// Without a key nothing can be analyzed or searched, so the connection sheet opens once on load.
+let askedForKey = false;
+const askForKey = setInterval(() => { if (!state) return; clearInterval(askForKey); if (!state.configured && !askedForKey) { askedForKey = true; $('settings').showModal(); } },200);

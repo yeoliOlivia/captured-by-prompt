@@ -150,6 +150,8 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
   server.setErrorHandler((e, _, reply) => reply.code((e as { statusCode?: number }).statusCode === 413 ? 413 : 400).send({ message: (e as { statusCode?: number }).statusCode === 413 ? 'Choose photos smaller than 25 MB each.' : 'Could not process that request. Check the input and try again.' }));
   server.get('/', async (_, reply) => reply.type('text/html').send((await readFile(resolve(directory, 'index.html'), 'utf8')).replace('__SESSION__', session)));
   server.get('/app.js', async (_, reply) => reply.type('text/javascript').send(await readFile(resolve(directory, 'app.js'), 'utf8')));
+  server.get('/styles.css', async (_, reply) => reply.type('text/css').send(await readFile(resolve(directory, 'styles.css'), 'utf8')));
+  server.get('/theme.js', async (_, reply) => reply.type('text/javascript').send(await readFile(resolve(directory, 'theme.js'), 'utf8')));
   server.get('/search-utils.js', async (_, reply) => reply.type('text/javascript').send(await readFile(resolve(directory, '../packages/core/src/strictness.js'), 'utf8')));
   server.get('/context', async () => ({memories:contextStore.list()}));
   server.post('/context/save', async (req,reply) => {
