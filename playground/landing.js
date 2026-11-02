@@ -10,7 +10,7 @@ const SEEN = 'captured-intro-seen';
 const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
 const seg = (p, a, b) => clamp((p - a) / (b - a));
 const ease = t => 1 - Math.pow(1 - t, 3);
-const storyEnd = () => story.getBoundingClientRect().top + scrollY + story.offsetHeight - innerHeight;
+const heroTop = () => hero.getBoundingClientRect().top + scrollY;
 let radius = 0;
 
 // Photo wheel: up to 24 library photos on a ring; fewer than 12 are repeated so the ring stays closed.
@@ -95,12 +95,56 @@ function setCaptions(memories) {
   document.querySelectorAll('[data-caption="left"]').forEach(el => el.textContent = left); $('caption-right').textContent = right;
 }
 
+// Ending: a Spotlight-style panel types an example, then a pointer clicks its "Search in Captured" shortcut, which scrolls
+// to the real search bar with the example filled in. The demo runs only while the viewer stays put; any scroll cancels it.
+const EXAMPLE = 'Photos of Owen and I at the beach';
+const spotInput = $('spot-input'), cursor = $('demo-cursor');
+let typing = null, autoTyped = false, userTyped = false, demo = [];
+spotInput.addEventListener('input', e => { if (e.isTrusted) userTyped = true; });
+const later = (ms, fn) => demo.push(setTimeout(fn, ms));
+function stopDemo() { demo.forEach(clearTimeout); demo = []; cursor.style.opacity = 0; cursor.classList.remove('down'); $('spot-hit').classList.remove('pressed'); }
+function startTyping() {
+  if (typing || userTyped || autoTyped) return;
+  let n = 0; spotInput.value = '';
+  typing = setInterval(() => {
+    spotInput.value = EXAMPLE.slice(0, ++n);
+    if (n < EXAMPLE.length) return;
+    clearInterval(typing); typing = null; autoTyped = true;
+    $('spot-hit-title').textContent = `Search \u201c${EXAMPLE}\u201d in Captured`; $('spot-results').classList.add('on');
+    clickDemo();
+  }, 55);
+}
+function resetTyping() {
+  stopDemo();
+  if (userTyped) return;
+  clearInterval(typing); typing = null; autoTyped = false; spotInput.value = ''; $('spot-results').classList.remove('on');
+}
+function clickDemo() {
+  const y0 = scrollY, still = () => Math.abs(scrollY - y0) < 4;
+  later(700, () => {
+    if (!still()) return;
+    const panel = $('spotlight').getBoundingClientRect(), hit = $('spot-hit').getBoundingClientRect();
+    const from = { x: panel.right - 30, y: panel.bottom + 70 }, to = { x: hit.left + hit.width * .32, y: hit.top + hit.height * .55 };
+    cursor.style.transition = 'none'; cursor.style.transform = `translate(${from.x}px, ${from.y}px)`; cursor.style.opacity = 1;
+    requestAnimationFrame(() => requestAnimationFrame(() => { cursor.style.transition = 'opacity .2s, transform .9s cubic-bezier(.3,.7,.2,1)'; cursor.style.transform = `translate(${to.x}px, ${to.y}px)`; }));
+  });
+  later(1750, () => { if (!still()) return stopDemo(); cursor.classList.add('down'); $('spot-hit').classList.add('pressed'); });
+  later(1950, () => { cursor.classList.remove('down'); $('spot-hit').classList.remove('pressed'); });
+  later(2250, () => { if (!still()) return stopDemo(); goToSearch(spotInput.value.trim() || EXAMPLE); });
+}
+// Fills the real search box but does not run the search, so the example never spends a model request on its own.
+function goToSearch(query) { stopDemo(); $('prompt').value = query; jump(true); $('prompt').focus({ preventScroll: true }); }
+$('spot-hit').onclick = () => goToSearch(spotInput.value.trim() || EXAMPLE);
+$('spotlight').onsubmit = e => { e.preventDefault(); goToSearch(spotInput.value.trim() || EXAMPLE); };
+addEventListener('wheel', () => { if (demo.length) stopDemo(); }, { passive: true });
+addEventListener('touchmove', () => { if (demo.length) stopDemo(); }, { passive: true });
+
 // Timeline over the story (0..1): 0-.16 headline, 0-.26 wheel turns and stops, .2-.3 it rises to the top and holds,
-// .26-.38 album flies in tilted, .38-.71 photos fly from the wheel onto three pages that each flip over, .72-.86 the empty
-// spread flattens and fills the screen, .84-.94 corners, captions and spine fade, then the hero rises onto the page.
+// .26-.38 album flies in tilted, .38-.71 photos fly from the wheel onto three pages that each flip over, .72-.8 it settles
+// on the empty spread, .8-.93 it recedes while the Spotlight panel rises out of it, then the example types itself.
 function frame() {
   if (reduce) return;
-  if (screen.hidden) { root.classList.remove('intro-dark'); delete root.dataset.intro; for (const f of flips) for (const d of f.drops) d.fly.style.opacity = 0; return; }
+  if (screen.hidden) { root.classList.remove('intro-dark'); delete root.dataset.intro; for (const f of flips) for (const d of f.drops) d.fly.style.opacity = 0; stopDemo(); return; }
   const total = story.offsetHeight - innerHeight;
   const p = clamp(-story.getBoundingClientRect().top / total);
   intro.style.opacity = 1 - seg(p, .04, .16);
@@ -111,11 +155,11 @@ function frame() {
   wrap.style.transform = `translateY(${(1 - wIn) * 120 - seg(p, .08, .2) * innerHeight * .08 - rise * innerHeight * .42}px) translateZ(${-radius - 120 - rise * 260}px) rotateX(${-6 - 6 * rise}deg)`;
   wheel.style.transform = `rotateY(${SPIN_STOP * ease(seg(p, 0, .26))}deg)`;
   count.style.opacity = seg(p, .1, .16) * (1 - seg(p, .2, .26));
-  const enter = ease(seg(p, .26, .38)), g = ease(seg(p, .38, .71)), flat = ease(seg(p, .72, .86));
-  album.style.opacity = p < .25 ? 0 : 1;
-  // Floating, the album is small and leans one way, then the other; it grows a little while pages flip, then fills the screen.
-  const tiltZ = -28 * (1 - enter) + 9 * enter - 4 * g;
-  album.style.transform = `translateY(${(1 - enter) * innerHeight * .9}px) scale(${(.238 + .07 * enter + .1 * g) * (1 - flat) + flat}) rotateX(${(48 - 16 * g) * (1 - flat)}deg) rotateY(${10 * (1 - flat)}deg) rotateZ(${tiltZ * (1 - flat)}deg)`;
+  const enter = ease(seg(p, .26, .38)), g = ease(seg(p, .38, .71)), hold = ease(seg(p, .72, .8)), rec = ease(seg(p, .8, .93));
+  album.style.opacity = p < .25 ? 0 : 1 - seg(p, .86, .93);
+  // Floating, the album is small and leans one way, then the other; it grows a little while pages flip, settles, then recedes.
+  const tiltZ = (-28 * (1 - enter) + 9 * enter - 4 * g) * (1 - .6 * hold);
+  album.style.transform = `translateY(${(1 - enter) * innerHeight * .9 - rec * innerHeight * .06}px) scale(${(.238 + .07 * enter + .1 * g + .05 * hold) * (1 - .86 * rec)}) rotateX(${48 - 16 * g - 10 * hold + 8 * rec}deg) rotateY(${10 * (1 - hold)}deg) rotateZ(${tiltZ}deg)`;
   const narrow = innerWidth <= 720;
   flips.forEach((f, i) => {
     const a = .38 + i * .11;
@@ -139,17 +183,22 @@ function frame() {
     f.el.style.transform = `translateZ(${z}px) rotateY(${-180 * tt}deg)`;
     f.el.style.opacity = narrow ? 1 - seg(tt, .4, .8) : ''; // one-page phone layout: turned pages leave the screen
   });
-  album.style.setProperty('--mounts', 1 - seg(p, .84, .92));
-  album.style.setProperty('--grain', 1 - seg(p, .86, .94));
-  const ui = ease(seg(p, .88, .98));
-  hero.style.opacity = ui; hero.style.pointerEvents = ui > .5 ? '' : 'none';
-  root.classList.toggle('intro-dark', p < .84);
-  if (p > .97) { root.dataset.intro = 'done'; try { sessionStorage.setItem(SEEN, '1'); } catch {} } else root.dataset.intro = 'playing';
+  const em = ease(seg(p, .82, .92)), spot = $('spotlight');
+  spot.style.opacity = seg(p, .82, .87);
+  spot.style.transform = `translate(-50%, ${(1 - em) * innerHeight * .26}px) scale(${.1 + .9 * em})`;
+  spot.style.pointerEvents = em > .6 ? 'auto' : 'none';
+  $('landing-glow').style.opacity = .55 * seg(p, .84, .96);
+  $('landing-down').style.opacity = seg(p, .94, 1);
+  if (p >= .93) startTyping(); else if (p < .88) resetTyping();
+  // The intro counts as done once the search hero is reached; the key sheet waits until then.
+  const heroY = hero.getBoundingClientRect().top;
+  root.classList.toggle('intro-dark', heroY > 60);
+  if (heroY < innerHeight * .3) { root.dataset.intro = 'done'; try { sessionStorage.setItem(SEEN, '1'); } catch {} } else root.dataset.intro = 'playing';
 }
 let pending = 0;
 const schedule = () => { if (!pending) pending = requestAnimationFrame(() => { pending = 0; frame(); }); };
 
-const jump = (smooth = false) => { if (!screen.hidden) scrollTo({ top: storyEnd(), behavior: smooth ? 'smooth' : 'auto' }); };
+function jump(smooth = false) { if (!screen.hidden) scrollTo({ top: heroTop(), behavior: smooth ? 'smooth' : 'auto' }); }
 if (!reduce) {
   root.dataset.intro = 'playing';
   addEventListener('scroll', schedule, { passive: true });
@@ -176,5 +225,6 @@ $('night-toggle').onclick = () => { if (root.dataset.night === 'royal') delete r
 nightLabel();
 $('threshold-toggle').onclick = () => { const row = $('threshold-row'); row.hidden = !row.hidden; $('threshold-toggle').setAttribute('aria-expanded', String(!row.hidden)); $('threshold-toggle').textContent = row.hidden ? 'Adjust strictness' : 'Hide strictness'; };
 
-fetch('/state').then(r => r.ok ? r.json() : null).then(state => { if (state) { buildWheel(state.photos); buildFlips(state.photos); setCount(state); schedule(); } }).catch(() => {});
+function buildGlow(photos) { $('landing-glow').replaceChildren(...photos.slice(0, 12).map(photo => { const img = document.createElement('img'); img.src = photo.image; img.alt = ''; img.decoding = 'async'; return img; })); }
+fetch('/state').then(r => r.ok ? r.json() : null).then(state => { if (state) { buildWheel(state.photos); buildFlips(state.photos); buildGlow(state.photos); setCount(state); schedule(); } }).catch(() => {});
 fetch('/context').then(r => r.ok ? r.json() : null).then(data => { if (data) setCaptions(data.memories); }).catch(() => {});

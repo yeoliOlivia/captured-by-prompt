@@ -259,7 +259,37 @@ body{overflow-x:clip}
 /* Photos in flight from the wheel to the album, drawn in screen space just under the top bar. */
 #fly-layer{position:fixed;inset:0;pointer-events:none;z-index:4}
 .fly{position:absolute;left:0;top:0;background:#fff;opacity:0;box-shadow:0 18px 40px rgba(0,0,0,.35)}
-.screen[data-screen=search] > .hero{position:relative;z-index:1;min-height:100vh;min-height:100svh;margin-top:-100vh;margin-top:-100svh;justify-content:center;padding-top:72px}
+.screen[data-screen=search] > .hero{position:relative;z-index:1;padding-top:104px}
+.brand-row{display:flex;align-items:center;justify-content:center;gap:10px;font-weight:600;font-size:15px;color:var(--muted)}
+.logo{width:40px;height:40px;flex:0 0 auto}
+.brand-row .logo{width:44px;height:44px}
+/* Intro ending: the album recedes and a Spotlight-style glass panel (an example of the computer's own search bar) rises out
+   of it over a blur of library colors. Its top hit is a shortcut into Captured; landing.js types an example and clicks it. */
+.glow{position:absolute;inset:-12%;display:grid;grid-template-columns:repeat(4,1fr);opacity:0;filter:blur(60px) saturate(1.5);pointer-events:none;will-change:opacity}
+.glow img{width:100%;height:100%;object-fit:cover;display:block}
+.spotlight{--glass:rgba(246,246,248,.62);--glass-ink:#1D1D1F;--glass-muted:rgba(29,29,31,.55);--glass-line:rgba(29,29,31,.12);--glass-sel:rgba(29,29,31,.08);
+  position:absolute;left:50%;top:max(84px,16vh);width:min(680px,calc(100% - 32px));transform-origin:50% 50%;opacity:0;pointer-events:none;color:var(--glass-ink);background:var(--glass);-webkit-backdrop-filter:blur(30px) saturate(180%);backdrop-filter:blur(30px) saturate(180%);border:1px solid rgba(255,255,255,.45);border-radius:28px;box-shadow:0 30px 80px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.5);padding:6px 12px 12px;display:flex;flex-direction:column}
+:root[data-theme=dark] .spotlight{--glass:rgba(44,42,52,.6);--glass-ink:#F4F2F8;--glass-muted:rgba(244,242,248,.6);--glass-line:rgba(255,255,255,.14);--glass-sel:rgba(255,255,255,.1)}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]) .spotlight{--glass:rgba(44,42,52,.6);--glass-ink:#F4F2F8;--glass-muted:rgba(244,242,248,.6);--glass-line:rgba(255,255,255,.14);--glass-sel:rgba(255,255,255,.1)}}
+.spot-row{display:flex;align-items:center;gap:14px;padding:10px 8px 12px}
+.spot-icon{width:26px;height:26px;flex:0 0 auto;color:var(--glass-muted)}
+.spotlight input{flex:1 1 auto;min-width:0;border:0;outline:none;background:transparent;color:var(--glass-ink);font-size:clamp(20px,2.6vw,28px);letter-spacing:-.01em;padding:4px 0}
+.spotlight input::placeholder{color:var(--glass-muted)}
+.spot-results{display:flex;flex-direction:column;gap:2px;border-top:1px solid var(--glass-line);max-height:0;opacity:0;overflow:hidden;transition:max-height .45s ease,opacity .35s ease}
+.spot-results.on{max-height:260px;opacity:1;padding-top:6px}
+.spot-head{margin:8px 10px 2px;font-size:12px;font-weight:600;color:var(--glass-muted)}
+.spot-item{display:flex;align-items:center;gap:14px;padding:9px 10px;border-radius:14px;border:0;background:transparent;width:100%;text-align:left;color:inherit;font:inherit;transition:transform .12s ease,background-color .12s ease}
+button.spot-item{cursor:pointer}
+.spot-item.sel{background:var(--glass-sel)}
+.spot-item.pressed{transform:scale(.98);background:color-mix(in srgb,var(--accent) 28%,transparent)}
+.spot-text{display:flex;flex-direction:column;min-width:0}
+.spot-text b{font-weight:500;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.spot-text small{font-size:13px;color:var(--glass-muted)}
+.spot-kbd{margin-left:auto;font-size:11px;color:var(--glass-muted);border:1px solid var(--glass-line);border-radius:6px;padding:2px 6px;flex:0 0 auto}
+.landing-down{position:absolute;left:0;right:0;bottom:4vh;text-align:center;font-size:13px;color:var(--night-muted);opacity:0}
+.demo-cursor{position:fixed;left:0;top:0;width:28px;height:28px;z-index:6;pointer-events:none;opacity:0;transition:opacity .2s;filter:drop-shadow(0 2px 3px rgba(0,0,0,.4))}
+.demo-cursor svg{display:block;width:100%;height:100%;transform-origin:20% 10%;transition:transform .1s}
+.demo-cursor.down svg{transform:scale(.82)}
 .hero h1{text-align:center;font-size:clamp(34px,5.6vw,64px);letter-spacing:-.035em}
 .hero .search{border-radius:999px;padding:6px 6px 6px 22px}
 .hero .search .primary{border-radius:999px}
