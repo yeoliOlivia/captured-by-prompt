@@ -1,11 +1,12 @@
-/* Design tokens. Light is the default; dark comes from the system setting or the toggle (html[data-theme]). */
-:root{color-scheme:light;--bg:#FCFAF6;--paper:#FFFFFF;--ink:#231F2B;--muted:#6A6475;--line:#ECE6F1;--soft:#F3EEF8;--danger:#9A3B1E;--danger-bg:#F6E4DC;--overlay:rgba(35,31,43,.72);--overlay-ink:#FFFFFF;
-  /* Pastel lavender, used three ways: --accent fills buttons, --accent-soft marks selected states, --accent-text and
-     --accent-line carry text, outlines and controls, because pastels are too light to read on cream. */
-  --accent:#C7B8D8;--accent-ink:#2B2238;--accent-soft:#E4D9F0;--accent-text:#6B5A8C;--accent-line:#B5A3C8;
-  --sans:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;--radius:18px;--radius-s:10px;--shadow:0 1px 2px rgba(35,31,43,.06)}
-:root[data-theme=dark]{color-scheme:dark;--bg:#15131A;--paper:#1D1A24;--ink:#EEEAF4;--muted:#ABA4B8;--line:#2E2938;--soft:#252130;--accent:#C7B8D8;--accent-ink:#1D1726;--accent-soft:#3A3150;--accent-text:#CBBDE6;--accent-line:#9A87BC;--danger:#F0A58C;--danger-bg:#3A221B;--overlay:rgba(238,234,244,.86);--overlay-ink:#15131A;--shadow:none}
-@media(prefers-color-scheme:dark){:root:not([data-theme=light]){color-scheme:dark;--bg:#15131A;--paper:#1D1A24;--ink:#EEEAF4;--muted:#ABA4B8;--line:#2E2938;--soft:#252130;--accent:#C7B8D8;--accent-ink:#1D1726;--accent-soft:#3A3150;--accent-text:#CBBDE6;--accent-line:#9A87BC;--danger:#F0A58C;--danger-bg:#3A221B;--overlay:rgba(238,234,244,.86);--overlay-ink:#15131A;--shadow:none}}
+/* Design tokens ("Darkroom"). Neutral surfaces so the photos carry the color, one deep violet accent kept from the old
+   lavender brand. Light is the default; dark comes from the system setting or the toggle (html[data-theme]).
+   --night* color the scroll intro on the Search screen in both themes; --cover and --corner are the album's cover and photo corners. */
+:root{color-scheme:light;--bg:#F7F7F5;--paper:#FFFFFF;--ink:#1D1D1F;--muted:#6E6E73;--line:#E3E2E0;--soft:#EFEEEB;--danger:#9A3B1E;--danger-bg:#F6E4DC;--overlay:rgba(29,29,31,.72);--overlay-ink:#FFFFFF;
+  --accent:#4E3F7E;--accent-ink:#FFFFFF;--accent-soft:#ECE8F5;--accent-text:#4E3F7E;--accent-line:#8E80B8;
+  --night:#0F0F12;--night-ink:#F5F5F7;--night-muted:#9A99A3;--cover:#FFFFFF;--corner:#2A2A2E;
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Inter,"Segoe UI",sans-serif;--mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;--hand:"Bradley Hand","Noteworthy","Segoe Print",cursive;--radius:18px;--radius-s:10px;--shadow:0 1px 2px rgba(29,29,31,.06)}
+:root[data-theme=dark]{color-scheme:dark;--bg:#1B1B1E;--paper:#242428;--ink:#F2F2F4;--muted:#A1A1A8;--line:#2E2E33;--soft:#26262A;--accent:#B9A9E6;--accent-ink:#1A1530;--accent-soft:#2E2842;--accent-text:#C9BCEE;--accent-line:#8E80B8;--danger:#F0A58C;--danger-bg:#3A221B;--overlay:rgba(242,242,244,.86);--overlay-ink:#1B1B1E;--shadow:none;--corner:#55555C}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){color-scheme:dark;--bg:#1B1B1E;--paper:#242428;--ink:#F2F2F4;--muted:#A1A1A8;--line:#2E2E33;--soft:#26262A;--accent:#B9A9E6;--accent-ink:#1A1530;--accent-soft:#2E2842;--accent-text:#C9BCEE;--accent-line:#8E80B8;--danger:#F0A58C;--danger-bg:#3A221B;--overlay:rgba(242,242,244,.86);--overlay-ink:#1B1B1E;--shadow:none;--corner:#55555C}}
 
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5}
@@ -78,7 +79,7 @@ progress{width:100%;accent-color:var(--accent-text);height:8px}
 .key-row{display:flex;gap:10px}
 .key-row input,.key-panel select{width:100%;padding:12px;border:1px solid var(--line);border-radius:var(--radius-s);background:var(--bg);min-width:0}
 dialog{border:1px solid var(--line);border-radius:var(--radius);background:var(--paper);color:var(--ink);padding:0;max-width:560px;width:calc(100% - 32px)}
-dialog::backdrop{background:rgba(16,18,17,.5)}
+dialog::backdrop{background:rgba(15,15,18,.5)}
 .sheet{padding:24px}
 .sheet-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
 .drop{border:1px dashed var(--line);padding:28px;border-radius:var(--radius);background:var(--paper);text-align:center;display:flex;flex-direction:column;gap:8px;align-items:center}
@@ -190,7 +191,64 @@ dialog.wide{max-width:900px}
 .photo{z-index:0}
 .photo:hover{z-index:1}
 @media(hover:hover){
-  .trip-card:hover,.memory-row:hover{transform:scale(1.04);box-shadow:0 10px 24px rgba(43,34,56,.14)}
-  .photo-image:hover{transform:scale(1.05);box-shadow:0 10px 24px rgba(43,34,56,.2)}
+  .trip-card:hover,.memory-row:hover{transform:scale(1.04);box-shadow:0 10px 24px rgba(29,29,31,.14)}
+  .photo-image:hover{transform:scale(1.05);box-shadow:0 10px 24px rgba(29,29,31,.2)}
 }
 @media(prefers-reduced-motion:reduce){.trip-card,.memory-row,.photo-image{transition:none}}
+
+/* Search screen intro: a scroll story on a sticky stage (a full-screen panel pinned while its tall parent scrolls past).
+   Order: headline, a turning ring of library photos, an open album that floats in tilted, then rotates flat and fills the
+   screen. The search hero is pulled up over the last screen of the story so it rises onto the album's pages.
+   landing.js sets the transforms from scroll progress; with reduced motion the story is hidden and the hero shows as before. */
+body{overflow-x:clip}
+/* TEMPORARY: royal purple intro background, switched by the "Intro" button in the top bar (#night-toggle). Remove after choosing. */
+:root[data-night=royal]{--night:#1A0E30;--night-ink:#F6F2FC;--night-muted:#A699C4}
+#night-toggle{cursor:pointer}
+.topbar{background:color-mix(in srgb,var(--bar-bg,var(--bg)) 78%,transparent);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);transition:background-color .3s,color .3s,border-color .3s}
+:root.intro-dark .topbar{--bar-bg:var(--night);color:var(--night-ink);border-color:color-mix(in srgb,var(--night-ink) 10%,transparent)}
+:root.intro-dark .topbar .nav button{color:var(--night-muted)}
+:root.intro-dark .topbar .nav button[aria-current=page]{background:color-mix(in srgb,var(--night-ink) 12%,transparent);color:var(--night-ink)}
+:root.intro-dark .topbar .pill,:root.intro-dark .topbar .iconbutton{border-color:color-mix(in srgb,var(--night-ink) 16%,transparent);color:var(--night-ink)}
+.screen[data-screen=search]{padding-top:0}
+.story{position:relative;height:520vh;width:100vw;margin-left:calc(50% - 50vw)}
+.stage{position:sticky;top:0;height:100vh;height:100svh;overflow:hidden;perspective:1400px;background:var(--night);color:var(--night-ink)}
+.landing-intro{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center;padding:clamp(120px,18vh,180px) 16px 0}
+.landing-eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--night-muted)}
+.landing-title{font-size:clamp(40px,7.4vw,88px);line-height:1.02;letter-spacing:-.035em;font-weight:600;max-width:14ch;text-wrap:balance}
+.landing-sub{font-size:clamp(17px,1.6vw,21px);color:var(--night-muted);max-width:34ch;line-height:1.4}
+.landing-skip{margin-top:6px;font-size:15px;color:var(--night-ink);background:none;border:0;padding:8px;opacity:.85}
+.landing-skip:hover{text-decoration:underline}
+.wheel-wrap{position:absolute;left:50%;top:64%;width:0;height:0;transform-style:preserve-3d}
+.wheel{position:absolute;transform-style:preserve-3d}
+.wheel-card{position:absolute;left:calc(var(--cw)/-2);top:calc(var(--cw)*-.66);width:var(--cw);height:calc(var(--cw)*1.32);border-radius:10px;overflow:hidden;backface-visibility:hidden;background:#222;box-shadow:0 20px 40px rgba(0,0,0,.35)}
+.wheel-card img{width:100%;height:100%;object-fit:cover;display:block}
+.landing-count{position:absolute;left:16px;right:16px;bottom:18vh;text-align:center;font-size:clamp(17px,1.6vw,21px);color:var(--night-muted)}
+.landing-count b{color:var(--night-ink);font-weight:600}
+.album{position:absolute;inset:0;opacity:0;pointer-events:none;transform-origin:50% 50%;will-change:transform;color:var(--ink)}
+.album-cover{position:absolute;inset:-3% -2.6% -4.2%;background:var(--cover);border-radius:10px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08),0 60px 120px rgba(0,0,0,.45)}
+.leaf{position:absolute;top:0;bottom:0;width:50%;background:var(--bg)}
+/* Stepped page edges: alternating page and line colored shadows, offset outward, read as a thick stack of pages. */
+.leaf.l{left:0;border-radius:6px 0 0 6px;box-shadow:-3px 3px 0 -1px var(--bg),-3px 3px 0 0 var(--line),-6px 6px 0 -1px var(--bg),-6px 6px 0 0 var(--line),-9px 9px 0 -1px var(--bg),-9px 9px 0 0 var(--line),-12px 12px 0 -1px var(--bg),-12px 12px 0 0 var(--line),-15px 15px 0 -1px var(--bg),-15px 15px 0 0 var(--line)}
+.leaf.r{right:0;border-radius:0 6px 6px 0;box-shadow:3px 3px 0 -1px var(--bg),3px 3px 0 0 var(--line),6px 6px 0 -1px var(--bg),6px 6px 0 0 var(--line),9px 9px 0 -1px var(--bg),9px 9px 0 0 var(--line),12px 12px 0 -1px var(--bg),12px 12px 0 0 var(--line),15px 15px 0 -1px var(--bg),15px 15px 0 0 var(--line)}
+.leaf::after{content:"";position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,transparent 0 3px,color-mix(in srgb,var(--ink) 2.5%,transparent) 3px 4px);opacity:var(--grain,1)}
+.spine{position:absolute;top:0;bottom:0;left:50%;width:14%;transform:translateX(-50%);opacity:var(--mounts,1);background:linear-gradient(90deg,transparent,rgba(0,0,0,.07) 40%,rgba(0,0,0,.22) 50%,rgba(0,0,0,.07) 60%,transparent)}
+.spot{position:absolute;left:16%;right:16%;top:22%;bottom:22%;border-radius:2px;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ink) 5%,transparent);opacity:var(--mounts,1)}
+/* Photo corner: a small folded paper pocket. The diagonal edge is the open lip the photo slides under, so it gets a highlight. */
+.mount{position:absolute;width:38px;height:38px;opacity:var(--mounts,1);filter:drop-shadow(0 0 1px rgba(0,0,0,.45)) drop-shadow(0 0 3px rgba(0,0,0,.18))}
+.mount::before{content:"";position:absolute;inset:0;clip-path:polygon(0 0,100% 0,0 100%);background:linear-gradient(135deg,transparent calc(50% - 3px),color-mix(in srgb,#fff 28%,var(--corner)) calc(50% - 1.5px),color-mix(in srgb,#fff 10%,var(--corner)) 50%),linear-gradient(135deg,color-mix(in srgb,#fff 8%,var(--corner)),var(--corner) 40%,color-mix(in srgb,#000 25%,var(--corner)))}
+.mount::after{content:"";position:absolute;left:7px;top:7px;width:11px;height:11px;clip-path:polygon(0 0,100% 0,0 100%);background:color-mix(in srgb,#000 30%,var(--corner));opacity:.5}
+.m1{left:16%;top:22%}.m2{right:16%;top:22%;transform:scaleX(-1)}.m3{left:16%;bottom:22%;transform:scaleY(-1)}.m4{right:16%;bottom:22%;transform:scale(-1)}
+.caption{position:absolute;left:16%;right:16%;top:calc(78% + 14px);min-height:1.2em;text-align:center;font-family:var(--hand);font-size:clamp(15px,1.8vw,24px);color:color-mix(in srgb,var(--ink) 55%,transparent);opacity:var(--mounts,1);transform:rotate(-1.2deg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.leaf.r .caption{transform:rotate(.8deg)}
+.caption:empty{left:30%;right:30%;border-bottom:1px solid color-mix(in srgb,var(--ink) 18%,transparent)}
+.album-aside{position:absolute;right:7%;bottom:4.5%;font-family:var(--hand);font-size:clamp(12px,1.3vw,16px);color:color-mix(in srgb,var(--ink) 32%,transparent);transform:rotate(-4deg);opacity:var(--mounts,1)}
+.screen[data-screen=search] > .hero{position:relative;z-index:1;min-height:100vh;min-height:100svh;margin-top:-100vh;margin-top:-100svh;justify-content:center;padding-top:72px}
+.hero h1{text-align:center;font-size:clamp(34px,5.6vw,64px);letter-spacing:-.035em}
+.hero .search{border-radius:999px;padding:6px 6px 6px 22px}
+.hero .search .primary{border-radius:999px}
+.controls{justify-content:center}
+.controls .threshold{flex:1 1 100%}
+#threshold-toggle{align-self:center}
+/* A portrait phone screen is too narrow for a two-page spread, so the album shows one page with its stack of edges. */
+@media(max-width:720px){.leaf.l,.spine{display:none}.leaf.r{width:100%;border-radius:6px}.mount{width:26px;height:26px}.mount::after{left:5px;top:5px;width:7px;height:7px}.landing-intro{padding-top:96px}}
+@media(prefers-reduced-motion:reduce){.story{display:none}.screen[data-screen=search]{padding-top:40px}.screen[data-screen=search] > .hero{min-height:0;margin-top:0;padding-top:24px}}

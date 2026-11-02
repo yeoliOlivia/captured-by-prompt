@@ -423,7 +423,8 @@ $('open-settings').onclick = () => $('settings').showModal();
 $('close-settings').onclick = () => $('settings').close();
 // Without a key nothing can be analyzed or searched, so the connection sheet opens once on load.
 let askedForKey = false;
-const askForKey = setInterval(() => { if (!state) return; clearInterval(askForKey); if (!state.configured && !askedForKey) { askedForKey = true; $('settings').showModal(); } },200);
+// Waits while the Search screen intro is playing (landing.js sets data-intro), so the sheet does not cover it.
+const askForKey = setInterval(() => { if (!state || document.documentElement.dataset.intro === 'playing') return; clearInterval(askForKey); if (!state.configured && !askedForKey) { askedForKey = true; $('settings').showModal(); } },200);
 
 // Trip editing: tabs and filter on the People screen, shortcuts from the Trips screen, and a live count
 // of the photos a draft date range would include.

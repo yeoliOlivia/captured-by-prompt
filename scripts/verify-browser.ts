@@ -25,8 +25,17 @@ const url=`http://127.0.0.1:${(server.server.address() as {port:number}).port}`;
 let browser;
 try { browser=await chromium.launch({headless:true}); } catch(error) { await server.close(); throw error; }
 try {
- const page=await browser.newPage({viewport:{width:1200,height:950}});
+ // The Search screen intro: the connection sheet waits for it, Skip lands on the search bar, then the sheet opens.
+ const intro=await browser.newPage({viewport:{width:1200,height:950}});
+ await intro.goto(url+'/');await intro.waitForTimeout(600);
+ assert.equal(await intro.evaluate(()=>document.documentElement.dataset.intro),'playing');assert.equal(await intro.locator('#settings').evaluate((d:any)=>d.open),false);
+ await intro.locator('#landing-skip').click();await intro.waitForFunction(()=>document.documentElement.dataset.intro==='done');
+ await intro.waitForFunction(()=>(document.querySelector('#settings') as any).open);await intro.close();
+ // The rest runs with reduced motion, which hides the intro and keeps the original Search screen layout.
+ const page=await browser.newPage({viewport:{width:1200,height:950},reducedMotion:'reduce'});
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+ // The strictness slider sits behind "Adjust strictness" on the Search screen; open it before moving it.
+ const strict=async(value:string)=>{if(await page.locator('#threshold-row').isHidden()) await page.locator('#threshold-toggle').click(); await page.locator('#threshold').fill(value);};
  const go=async(screen:string)=>{await page.locator(`.nav button[data-go="${screen}"]`).click();};
  await page.goto(url+'/');
  await page.locator('#key').fill('test-only-key-not-a-real-key');await page.locator('#connect').click();
@@ -36,8 +45,8 @@ try {
  assert.equal(await page.locator('#gallery [data-similarity]').count(),0); assert.equal(await page.locator('#threshold-value').count(),0);
  await go('library');await page.locator('#scan').click();await page.waitForFunction(()=>!document.querySelector('#scan').disabled);await go('search');assert.equal(await page.locator('#gallery .photo').count(),1);
  const before=texts;
- await page.locator('#threshold').fill('0');await page.waitForFunction(()=>document.querySelectorAll('#gallery .photo').length===3);assert.equal(texts,before);
- await page.locator('#threshold').fill('1');assert.equal(await page.locator('#gallery .photo').count(),1);
+ await strict('0');await page.waitForFunction(()=>document.querySelectorAll('#gallery .photo').length===3);assert.equal(texts,before);
+ await strict('1');assert.equal(await page.locator('#gallery .photo').count(),1);
  await page.locator('#threshold-reset').click();
  await page.locator('#prompt').fill('Mark');await page.locator('#search').click();await page.locator('#clarification').waitFor({state:'visible'});
  assert.equal(await page.locator('#gallery .photo').count(),0);
@@ -47,7 +56,7 @@ try {
  await page.waitForFunction(()=>document.querySelector('#context-used').textContent.includes('Mark'));
  await page.unroute('**/context/save');await go('search');
  assert.equal(await page.locator('#gallery .photo').count(),1);
- await page.locator('#uncertain').check();await page.locator('#threshold').fill('0');assert.equal(await page.locator('#gallery .photo').count(),3);await page.locator('#uncertain').uncheck();await page.locator('#threshold-reset').click();
+ await page.locator('#uncertain').check();await strict('0');assert.equal(await page.locator('#gallery .photo').count(),3);await page.locator('#uncertain').uncheck();await page.locator('#threshold-reset').click();
  await go('people');await page.locator('#add-memory').click();await page.locator('#memory-name').fill('Mark');await page.locator('#memory-qualifier').fill('from soccer');await page.locator('#pick-photos').click();await page.locator('#picker-grid button').nth(1).click();await page.locator('#picker-done').click();await page.locator('#save-memory').click();
  await page.waitForFunction(()=>document.querySelector('#memory-form').hidden);await go('search');
  await page.locator('#search').click();await page.locator('#clarification').waitFor({state:'visible'});
@@ -64,17 +73,17 @@ try {
  await page.locator('#prompt').fill('pagination');await page.locator('#search').click();await page.waitForFunction(()=>document.querySelector('#results-subtitle').textContent.includes('65 matches'));
  assert.equal(await page.locator('#gallery .photo').count(),60);await page.locator('#more').click();assert.equal(await page.locator('#gallery .photo').count(),65);assert(await page.locator('#more').isHidden());
  assert.equal(await page.locator('#gallery [data-similarity]').count(),0); assert.equal(await page.locator('#threshold-value').count(),0);
- await page.locator('#threshold').fill('1');assert.equal(await page.locator('#gallery .photo').count(),60); // 65 tied best scores, paged
+ await strict('1');assert.equal(await page.locator('#gallery .photo').count(),60); // 65 tied best scores, paged
  await page.unroute('**/search');
  let searchRequests=0;
  await page.route('**/search',async route=>{searchRequests++;const photos=(await (await page.request.get(url+'/state')).json()).photos;const empty=route.request().postDataJSON().query==='below baseline';await route.fulfill({json:{verified:false,results:Array.from({length:100},(_,i)=>({...photos[0],id:String(i),similarity:empty?.0001:.001+i*.00009})).reverse(),contextUsed:[]}});});
  await page.locator('#prompt').fill('narrow distribution');await page.locator('#search').click();await page.waitForFunction(()=>document.querySelector('#results-subtitle').textContent.includes('1 matches'));
  await page.locator('#threshold-reset').click();assert.equal(await page.locator('#gallery .photo').count(),25);
- await page.locator('#threshold').fill('0.6');assert.equal(await page.locator('#gallery .photo').count(),16);
- await page.locator('#threshold').fill('0');assert.equal(await page.locator('#gallery .photo').count(),60);await page.locator('#more').click();assert.equal(await page.locator('#gallery .photo').count(),100);
- await page.locator('#threshold').fill('1');assert.equal(await page.locator('#gallery .photo').count(),1);assert.equal(searchRequests,1);
+ await strict('0.6');assert.equal(await page.locator('#gallery .photo').count(),16);
+ await strict('0');assert.equal(await page.locator('#gallery .photo').count(),60);await page.locator('#more').click();assert.equal(await page.locator('#gallery .photo').count(),100);
+ await strict('1');assert.equal(await page.locator('#gallery .photo').count(),1);assert.equal(searchRequests,1);
  await page.locator('#prompt').fill('below baseline');await page.locator('#search').click();await page.waitForFunction(()=>document.querySelector('#results-subtitle').textContent.includes('0 matches'));
- await page.locator('#threshold').fill('0');assert.equal(await page.locator('#gallery .photo').count(),0);
+ await strict('0');assert.equal(await page.locator('#gallery .photo').count(),0);
  await page.setViewportSize({width:390,height:844});
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth));
  await go('people');await page.screenshot({path:join(dir,'mobile.png'),fullPage:true});

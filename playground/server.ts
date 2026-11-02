@@ -153,6 +153,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
   server.get('/', async (_, reply) => reply.type('text/html').send((await readFile(resolve(directory, 'index.html'), 'utf8')).replace('__SESSION__', session)));
   server.get('/app.js', async (_, reply) => reply.type('text/javascript').send(await readFile(resolve(directory, 'app.js'), 'utf8')));
   server.get('/styles.css', async (_, reply) => reply.type('text/css').send(await readFile(resolve(directory, 'styles.css'), 'utf8')));
+  server.get('/landing.js', async (_, reply) => reply.type('text/javascript').send(await readFile(resolve(directory, 'landing.js'), 'utf8')));
   server.get('/theme.js', async (_, reply) => reply.type('text/javascript').send(await readFile(resolve(directory, 'theme.js'), 'utf8')));
   server.get('/search-utils.js', async (_, reply) => reply.type('text/javascript').send(await readFile(resolve(directory, '../packages/core/src/strictness.js'), 'utf8')));
   server.get('/context', async () => ({memories:contextStore.list()}));
