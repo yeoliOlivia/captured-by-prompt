@@ -4,7 +4,7 @@
 const $ = id => document.getElementById(id);
 const root = document.documentElement;
 const story = $('story'), screen = document.querySelector('[data-screen="search"]'), hero = screen.querySelector('.hero');
-const intro = $('landing-intro'), wrap = $('wheel-wrap'), wheel = $('wheel'), count = $('landing-count'), album = $('album');
+const intro = $('landing-intro'), wrap = $('wheel-wrap'), wheel = $('wheel'), count = $('landing-count'), album = $('album'), flyLayer = $('fly-layer');
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const SEEN = 'captured-intro-seen';
 const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
@@ -28,6 +28,42 @@ function layoutWheel() {
   radius = (cw * 1.08) / (2 * Math.tan(Math.PI / cards.length));
   wheel.style.setProperty('--cw', `${cw}px`);
   cards.forEach((card, i) => card.style.transform = `rotateY(${i * step}deg) translateZ(${radius}px)`);
+}
+// Album pages. Photos fly from the stopped wheel onto three pages, which flip one after another toward the empty spread.
+// Each layout entry is [left%, top%, width%, height%, resting rotation in degrees] on a page.
+const LAYOUTS = [
+  [[10,10,46,40,-4],[50,30,40,34,5],[16,56,40,30,2]],
+  [[48,8,42,36,6],[8,26,44,38,-5],[34,60,44,30,-2]],
+  [[12,12,40,34,3],[46,44,44,40,-6],[10,58,34,28,4]],
+];
+const BACKS = [[[14,14,70,40,-2],[22,60,52,28,3]],[[10,10,44,36,4],[48,40,42,40,-3]]];
+const SPIN_STOP = -120; // where the wheel comes to rest, in degrees
+let flips = [];
+function placePhoto([l,t,w,h,rot], src, face) {
+  const d = document.createElement('div'); d.className = 'drop'; d.style.cssText = `left:${l}%;top:${t}%;width:${w}%;height:${h}%;transform:rotate(${rot}deg)`;
+  const img = document.createElement('img'); img.src = src; img.alt = ''; img.decoding = 'async'; d.append(img); face.append(d);
+  return d;
+}
+function buildFlips(photos) {
+  $('flips').replaceChildren(); flyLayer.replaceChildren(); flips = [];
+  const cards = [...wheel.children]; if (!cards.length) return;
+  // The cards facing the viewer when the wheel stops are the ones that fall, centre first.
+  const step = 360 / cards.length, off = i => Math.abs((((i * step + SPIN_STOP) % 360) + 540) % 360 - 180);
+  const falling = [...cards.keys()].sort((a, b) => off(a) - off(b)).slice(0, 9);
+  let k = 0, b = 9;
+  LAYOUTS.forEach((layout, i) => {
+    const flip = document.createElement('div'); flip.className = 'flip';
+    const front = document.createElement('div'); front.className = 'face front';
+    const back = document.createElement('div'); back.className = 'face back';
+    const drops = layout.map(L => {
+      const card = cards[falling[k++ % falling.length]], src = card.querySelector('img').src;
+      const fly = document.createElement('div'); fly.className = 'fly'; const img = document.createElement('img'); img.src = src; img.alt = ''; fly.append(img); flyLayer.append(fly);
+      return { el: placePhoto(L, src, front), rot: L[4], card, fly };
+    });
+    if (i < LAYOUTS.length - 1) BACKS[i].forEach(L => placePhoto(L, photos[b++ % photos.length].image, back));
+    else { back.innerHTML = '<i class="spot"></i><i class="mount m1"></i><i class="mount m2"></i><i class="mount m3"></i><i class="mount m4"></i><span class="caption" data-caption="left"></span>'; back.querySelector('.caption').textContent = $('caption-left').textContent; }
+    flip.append(front, back); $('flips').append(flip); flips.push({ el: flip, drops });
+  });
 }
 function setCount(state) {
   count.replaceChildren();
@@ -56,35 +92,58 @@ function setCaptions(memories) {
   let right = '';
   if (group) { const people = group.memberIds.map(id => byId.get(id)?.name).filter(Boolean).slice(0, 2); if (people.length) right = group.startDate ? `${names(people)}, ${whenAgo(group.startDate)}` : names(people); }
   if (!right) { const people = memories.filter(m => m.kind === 'person' && !m.isMe).slice(0, 2).map(m => m.name); if (people.length) right = names(people); }
-  $('caption-left').textContent = left; $('caption-right').textContent = right;
+  document.querySelectorAll('[data-caption="left"]').forEach(el => el.textContent = left); $('caption-right').textContent = right;
 }
 
-// Timeline over the story (0..1): 0-.16 headline, 0-.45 wheel turns, .36-.55 album floats in tilted,
-// .55-.85 album rotates flat and fills the screen, .8-.92 corners, captions and spine fade, then the hero rises onto the page.
+// Timeline over the story (0..1): 0-.16 headline, 0-.26 wheel turns and stops, .2-.3 it rises to the top and holds,
+// .26-.38 album flies in tilted, .38-.71 photos fly from the wheel onto three pages that each flip over, .72-.86 the empty
+// spread flattens and fills the screen, .84-.94 corners, captions and spine fade, then the hero rises onto the page.
 function frame() {
   if (reduce) return;
-  if (screen.hidden) { root.classList.remove('intro-dark'); delete root.dataset.intro; return; }
+  if (screen.hidden) { root.classList.remove('intro-dark'); delete root.dataset.intro; for (const f of flips) for (const d of f.drops) d.fly.style.opacity = 0; return; }
   const total = story.offsetHeight - innerHeight;
   const p = clamp(-story.getBoundingClientRect().top / total);
   intro.style.opacity = 1 - seg(p, .04, .16);
   intro.style.transform = `translateY(${-40 * seg(p, 0, .16)}px)`;
   intro.style.visibility = p > .17 ? 'hidden' : '';
-  const wIn = ease(seg(p, 0, .14)), wOut = seg(p, .36, .5);
+  const wIn = ease(seg(p, 0, .1)), rise = ease(seg(p, .2, .3)), wOut = seg(p, .66, .72);
   wrap.style.opacity = wIn * (1 - wOut);
-  wrap.style.transform = `translateY(${(1 - wIn) * 120 - seg(p, .1, .3) * innerHeight * .14}px) translateZ(${-radius - 120 - wOut * 400}px) rotateX(-6deg)`;
-  wheel.style.transform = `rotateY(${-p * 300}deg)`;
-  count.style.opacity = seg(p, .16, .24) * (1 - seg(p, .34, .42));
-  const enter = ease(seg(p, .36, .55)), flat = ease(seg(p, .55, .85));
-  album.style.opacity = p < .34 ? 0 : 1;
-  // While floating, the album is small (about a quarter of the screen) and tilted at a jaunty angle: it flies in rotated one way and
-  // swings past level to lean the other way, then straightens as it grows to fill the screen.
-  const tiltZ = -28 * (1 - enter) + 9 * enter;
-  album.style.transform = `translateY(${(1 - enter) * innerHeight * .9}px) scale(${(.238 + .07 * enter) * (1 - flat) + flat}) rotateX(${48 * (1 - flat)}deg) rotateY(${10 * (1 - flat)}deg) rotateZ(${tiltZ * (1 - flat)}deg)`;
-  album.style.setProperty('--mounts', 1 - seg(p, .8, .9));
-  album.style.setProperty('--grain', 1 - seg(p, .82, .92));
-  const ui = ease(seg(p, .86, .97));
+  wrap.style.transform = `translateY(${(1 - wIn) * 120 - seg(p, .08, .2) * innerHeight * .08 - rise * innerHeight * .42}px) translateZ(${-radius - 120 - rise * 260}px) rotateX(${-6 - 6 * rise}deg)`;
+  wheel.style.transform = `rotateY(${SPIN_STOP * ease(seg(p, 0, .26))}deg)`;
+  count.style.opacity = seg(p, .1, .16) * (1 - seg(p, .2, .26));
+  const enter = ease(seg(p, .26, .38)), g = ease(seg(p, .38, .71)), flat = ease(seg(p, .72, .86));
+  album.style.opacity = p < .25 ? 0 : 1;
+  // Floating, the album is small and leans one way, then the other; it grows a little while pages flip, then fills the screen.
+  const tiltZ = -28 * (1 - enter) + 9 * enter - 4 * g;
+  album.style.transform = `translateY(${(1 - enter) * innerHeight * .9}px) scale(${(.238 + .07 * enter + .1 * g) * (1 - flat) + flat}) rotateX(${(48 - 16 * g) * (1 - flat)}deg) rotateY(${10 * (1 - flat)}deg) rotateZ(${tiltZ * (1 - flat)}deg)`;
+  const narrow = innerWidth <= 720;
+  flips.forEach((f, i) => {
+    const a = .38 + i * .11;
+    f.drops.forEach((d, j) => {
+      // Flight in screen space from the wheel card to the photo's spot, falling faster as it goes and turning to rest;
+      // the in-album photo fades in as the flying copy lands.
+      const t = seg(p, a + j * .014, a + j * .014 + .04);
+      d.card.style.opacity = t > 0 ? 0 : '';
+      d.el.style.opacity = seg(t, .82, 1);
+      if (t <= 0 || t >= 1) { d.fly.style.opacity = 0; return; }
+      const from = d.card.getBoundingClientRect(), to = d.el.getBoundingClientRect();
+      const ex = t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2, ey = t * t;
+      const w = from.width + (to.width - from.width) * ex, h = from.height + (to.height - from.height) * ex;
+      const cx = from.left + from.width / 2 + (to.left + to.width / 2 - from.left - from.width / 2) * ex;
+      const cy = from.top + from.height / 2 + (to.top + to.height / 2 - from.top - from.height / 2) * ey - Math.sin(Math.PI * t) * 30;
+      Object.assign(d.fly.style, { width: `${w}px`, height: `${h}px`, padding: `${ex * .05 * w}px ${ex * .05 * w}px ${ex * .2 * w}px`, borderRadius: `${10 * (1 - ex)}px`, opacity: 1 - seg(t, .85, 1),
+        transform: `translate(${cx - w / 2}px, ${cy - h / 2}px) rotate(${(d.rot + 14 * Math.sin(t * Math.PI * 1.5) * (1 - t)) * ex}deg)` });
+    });
+    // Turn around the spine with a small lift; stacking order flips so the newest turned page lies on top.
+    const tt = ease(seg(p, a + .06, a + .11)), z = (flips.length - i) * (1 - tt) + (i + 1) * tt + Math.sin(Math.PI * tt) * 40;
+    f.el.style.transform = `translateZ(${z}px) rotateY(${-180 * tt}deg)`;
+    f.el.style.opacity = narrow ? 1 - seg(tt, .4, .8) : ''; // one-page phone layout: turned pages leave the screen
+  });
+  album.style.setProperty('--mounts', 1 - seg(p, .84, .92));
+  album.style.setProperty('--grain', 1 - seg(p, .86, .94));
+  const ui = ease(seg(p, .88, .98));
   hero.style.opacity = ui; hero.style.pointerEvents = ui > .5 ? '' : 'none';
-  root.classList.toggle('intro-dark', p < .8);
+  root.classList.toggle('intro-dark', p < .84);
   if (p > .97) { root.dataset.intro = 'done'; try { sessionStorage.setItem(SEEN, '1'); } catch {} } else root.dataset.intro = 'playing';
 }
 let pending = 0;
@@ -117,5 +176,5 @@ $('night-toggle').onclick = () => { if (root.dataset.night === 'royal') delete r
 nightLabel();
 $('threshold-toggle').onclick = () => { const row = $('threshold-row'); row.hidden = !row.hidden; $('threshold-toggle').setAttribute('aria-expanded', String(!row.hidden)); $('threshold-toggle').textContent = row.hidden ? 'Adjust strictness' : 'Hide strictness'; };
 
-fetch('/state').then(r => r.ok ? r.json() : null).then(state => { if (state) { buildWheel(state.photos); setCount(state); schedule(); } }).catch(() => {});
+fetch('/state').then(r => r.ok ? r.json() : null).then(state => { if (state) { buildWheel(state.photos); buildFlips(state.photos); setCount(state); schedule(); } }).catch(() => {});
 fetch('/context').then(r => r.ok ? r.json() : null).then(data => { if (data) setCaptions(data.memories); }).catch(() => {});

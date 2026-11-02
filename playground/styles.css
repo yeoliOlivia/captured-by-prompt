@@ -210,7 +210,7 @@ body{overflow-x:clip}
 :root.intro-dark .topbar .nav button[aria-current=page]{background:color-mix(in srgb,var(--night-ink) 12%,transparent);color:var(--night-ink)}
 :root.intro-dark .topbar .pill,:root.intro-dark .topbar .iconbutton{border-color:color-mix(in srgb,var(--night-ink) 16%,transparent);color:var(--night-ink)}
 .screen[data-screen=search]{padding-top:0}
-.story{position:relative;height:520vh;width:100vw;margin-left:calc(50% - 50vw)}
+.story{position:relative;height:760vh;width:100vw;margin-left:calc(50% - 50vw)}
 .stage{position:sticky;top:0;height:100vh;height:100svh;overflow:hidden;perspective:1400px;background:var(--night);color:var(--night-ink)}
 .landing-intro{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center;padding:clamp(120px,18vh,180px) 16px 0}
 .landing-eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--night-muted)}
@@ -242,6 +242,23 @@ body{overflow-x:clip}
 .leaf.r .caption{transform:rotate(.8deg)}
 .caption:empty{left:30%;right:30%;border-bottom:1px solid color-mix(in srgb,var(--ink) 18%,transparent)}
 .album-aside{position:absolute;right:7%;bottom:4.5%;font-family:var(--hand);font-size:clamp(12px,1.3vw,16px);color:color-mix(in srgb,var(--ink) 32%,transparent);transform:rotate(-4deg);opacity:var(--mounts,1)}
+/* Album pages that flip: each sits on the right half and turns around the spine (its left edge). The front holds photos
+   that flew in from the wheel; the back is what lies on the left once turned. */
+.album{transform-style:preserve-3d}
+#flips{position:absolute;inset:0;transform-style:preserve-3d}
+.flip{position:absolute;top:0;bottom:0;left:50%;width:50%;transform-origin:0 50%;transform-style:preserve-3d}
+.face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;background:var(--bg)}
+.face.front{border-radius:0 6px 6px 0}
+.face.back{transform:rotateY(180deg);border-radius:6px 0 0 6px}
+.face::before{content:"";position:absolute;inset:0;pointer-events:none;opacity:var(--mounts,1);background:linear-gradient(90deg,rgba(0,0,0,.16),rgba(0,0,0,.04) 6%,transparent 14%)}
+.face.back::before{background:linear-gradient(270deg,rgba(0,0,0,.16),rgba(0,0,0,.04) 6%,transparent 14%)}
+.face::after{content:"";position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,transparent 0 3px,color-mix(in srgb,var(--ink) 2.5%,transparent) 3px 4px);opacity:var(--grain,1)}
+.drop{position:absolute;padding:2.2% 2.2% 9%;background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.18);opacity:0}
+.drop img,.fly img{display:block;width:100%;height:100%;object-fit:cover}
+.face.back .drop{opacity:1}
+/* Photos in flight from the wheel to the album, drawn in screen space just under the top bar. */
+#fly-layer{position:fixed;inset:0;pointer-events:none;z-index:4}
+.fly{position:absolute;left:0;top:0;background:#fff;opacity:0;box-shadow:0 18px 40px rgba(0,0,0,.35)}
 .screen[data-screen=search] > .hero{position:relative;z-index:1;min-height:100vh;min-height:100svh;margin-top:-100vh;margin-top:-100svh;justify-content:center;padding-top:72px}
 .hero h1{text-align:center;font-size:clamp(34px,5.6vw,64px);letter-spacing:-.035em}
 .hero .search{border-radius:999px;padding:6px 6px 6px 22px}
@@ -250,5 +267,5 @@ body{overflow-x:clip}
 .controls .threshold{flex:1 1 100%}
 #threshold-toggle{align-self:center}
 /* A portrait phone screen is too narrow for a two-page spread, so the album shows one page with its stack of edges. */
-@media(max-width:720px){.leaf.l,.spine{display:none}.leaf.r{width:100%;border-radius:6px}.mount{width:26px;height:26px}.mount::after{left:5px;top:5px;width:7px;height:7px}.landing-intro{padding-top:96px}}
+@media(max-width:720px){.flip{left:0;width:100%}.leaf.l,.spine{display:none}.leaf.r{width:100%;border-radius:6px}.mount{width:26px;height:26px}.mount::after{left:5px;top:5px;width:7px;height:7px}.landing-intro{padding-top:96px}}
 @media(prefers-reduced-motion:reduce){.story{display:none}.screen[data-screen=search]{padding-top:40px}.screen[data-screen=search] > .hero{min-height:0;margin-top:0;padding-top:24px}}
