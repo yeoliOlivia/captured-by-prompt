@@ -103,7 +103,7 @@ Keep the adjustable cosine-similarity threshold and evaluate how understandable 
 
 ## 6. Social direction: trip pooling, map, and recaps
 
-After a trip, friends pool their photos on a shared map, the app finds who is in each photo, and it builds recaps that make curation easy. Personal search stays the everyday use; a public layer comes only after the private loop works. Priorities remain cost first, then efficiency, then quality. The editable plan lives in the [Social direction plan](https://claude.ai/code/artifact/f67c45a1-2b33-4ac9-a2a9-fad368654b58).
+After a trip, friends pool their photos on a shared map, the app finds who is in each photo, and it builds recaps that make curation easy. Personal search stays the everyday use; a public layer comes only after the private loop works. Priorities remain cost first, then efficiency, then quality. The editable plan lives in the [Social direction plan]
 
 Where it stands: trip pooling is built and tested on the `map-version` branch (capture time, location rounded to about 1 km, contributor from folder name, trips with dates and members, a batched and cached vision check of who appears in each photo using anonymous labels, and per-person export). It is not on `main` yet; a trial merge conflicts only in `README.md` and `playground/server.ts`. The iPhone app has no trip view, and phone imports do not record a contributor.
 
