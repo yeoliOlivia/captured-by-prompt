@@ -1,5 +1,5 @@
 import Fastify from 'fastify';
-import { CONFIG, geminiProvider, qwenProvider, vector, validateIdentification, validateVerification, type Provider, type ProviderName } from './providers.js';
+import { CONFIG, geminiProvider, modalEndpoint, modalProvider, qwenProvider, vector, validateIdentification, validateVerification, type Provider, type ProviderName } from './providers.js';
 import { readPhotoMetadata } from './exif.js';
 export { geminiProvider } from './providers.js';
 import sharp from 'sharp';
@@ -173,7 +173,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
     if (!photo) return reply.code(404).send({ message: 'Photo not found.' });
     return reply.type('image/jpeg').send(await readFile(resolve(datasetDir, `${photo.id}.jpg`)));
   });
-  server.get('/state', async () => ({ protocol: 'captured-v2', datasetId, contextVersion: contextVersion(), photos: photos.map(expose), datasetDir, configured: !!provider, indexing: !!task, searching, indexed: photos.filter(p => embeddingFor(p)).length, total: photos.length, current, error: [datasetWarnings,error].filter(Boolean).join(' '), imageCalls, queryCalls, dimensions: CONFIG[selected].dimensions, model: CONFIG[selected].model, provider: selected, providerLabel: CONFIG[selected].label, verificationModel: CONFIG[selected].vision, verificationCalls, contextCalls, identifyCalls, tagging, tagError }));
+  server.get('/state', async () => ({ protocol: 'captured-v2', datasetId, contextVersion: contextVersion(), photos: photos.map(expose), datasetDir, configured: !!provider, indexing: !!task, searching, indexed: photos.filter(p => embeddingFor(p)).length, total: photos.length, current, error: [datasetWarnings,error].filter(Boolean).join(' '), imageCalls, queryCalls, dimensions: CONFIG[selected].dimensions, model: CONFIG[selected].model, provider: selected, providerLabel: CONFIG[selected].label, visionAvailable: !!provider?.verify && !!provider?.plan, verificationModel: CONFIG[selected].vision, verificationCalls, contextCalls, identifyCalls, tagging, tagError }));
   server.post('/scan', async (_, reply) => {
     if (task || uploading || searching || scanning) return reply.code(409).send({ message: 'Wait for the current operation to finish.' });
     scanning = true;
@@ -200,9 +200,20 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
   });
   server.post('/connect', async (req, reply) => {
     if (task || searching || tagTask) return reply.code(409).send({ message: 'Wait for the current model request to finish.' });
-    const { key, provider: name } = z.object({ key: z.string().trim().min(20).max(8192), provider: z.enum(['gemini','qwen']).default('gemini') }).parse(req.body);
-    if (/\s/.test(key)) return reply.code(400).send({ message: 'Paste only the API key.' });
-    provider = options.providerFactory ? options.providerFactory(key,name) : name === 'qwen' ? qwenProvider(key) : geminiProvider(key); selected = name; plans.clear(); resolvedQueries.clear(); queries.clear(); verifiedQueries.clear(); error = '';
+    const { key, provider: name, endpoint, visionKey } = z.object({ key: z.string().trim().min(20).max(8192), provider: z.enum(['gemini','qwen','modal']).default('gemini'),
+      endpoint: z.string().trim().max(500).optional(), visionKey: z.string().trim().max(8192).optional() }).parse(req.body);
+    if (/\s/.test(key) || (visionKey && /\s/.test(visionKey))) return reply.code(400).send({ message: 'Paste only the API key.' });
+    if (visionKey && visionKey.length < 20) return reply.code(400).send({ message: 'The Gemini key looks too short.' });
+    let next: Provider;
+    if (options.providerFactory) next = options.providerFactory(key,name);
+    else if (name === 'modal') {
+      // The endpoint comes from the form, or from MODAL_EMBED_URL so it need not be pasted each time.
+      const url = endpoint || process.env.MODAL_EMBED_URL;
+      if (!url) return reply.code(400).send({ message: 'Paste the Modal endpoint URL printed by modal deploy, or set MODAL_EMBED_URL.' });
+      try { next = modalProvider(key, modalEndpoint(url), visionKey ? geminiProvider(visionKey) : undefined); }
+      catch { return reply.code(400).send({ message: 'Use the https:// endpoint URL printed by modal deploy.' }); }
+    } else next = name === 'qwen' ? qwenProvider(key) : geminiProvider(key);
+    provider = next; selected = name; plans.clear(); resolvedQueries.clear(); queries.clear(); verifiedQueries.clear(); error = '';
     return { configured: true };
   });
   server.post('/disconnect', async (_, reply) => {
@@ -243,6 +254,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
     const scope = photoIds ? new Set(photoIds) : null;
     const indexed = photos.filter(p => embeddingFor(p) && (!scope || scope.has(p.id)));
     if (!indexed.length) return reply.code(400).send({ message: 'Analyze your photos first.' });
+    if ((useContext && !provider.plan) || (verify && !provider.verify)) return reply.code(400).send({ message: 'Visual checking and personal context need a vision model. With Modal, also add a Gemini key.' });
     searching = true;
     let step = 'query interpretation';
     try {

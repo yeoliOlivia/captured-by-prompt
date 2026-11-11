@@ -58,6 +58,14 @@ async function refresh(preserveClarification = false) {
   contextVersion = state.contextVersion;
   $('connection-status').textContent = state.configured ? `${state.providerLabel} key loaded` : 'API key not loaded';
   $('key-form').hidden = state.configured; $('connected-controls').hidden = !state.configured;
+  // Modal without a Gemini key has embeddings only: personal context and visual checks need a vision model.
+  const vision = !state.configured || state.visionAvailable !== false;
+  for (const id of ['use-context','verify']) {
+    const box = $(id);
+    if (!vision && !box.disabled) { box.dataset.wasChecked = String(box.checked); box.checked = false; }
+    if (vision && box.disabled) box.checked = box.dataset.wasChecked === 'true';
+    box.disabled = !vision; box.title = vision ? '' : 'Needs a Gemini key alongside Modal (Model connection).';
+  }
   $('index-status').textContent = `${state.indexed} of ${state.total} photos ready`;
   $('index-detail').textContent = state.indexing ? `Analyzing ${state.current}…` : `${state.providerLabel} reads the image pixels. No captions or filename matching.`;
   $('progress').max = Math.max(1,state.total); $('progress').value = state.indexed;
@@ -77,7 +85,7 @@ async function refresh(preserveClarification = false) {
   if (!searchActive) $('results-subtitle').textContent = `${state.total} saved photos · ${state.indexed} searchable`;
   if (changed) await loadMemories();
 }
-$('key-form').onsubmit = async e => { e.preventDefault(); $('connect').disabled = true; try { await request('/connect', { key: $('key').value, provider: $('provider').value }); $('key').value = ''; if (searchActive) emptySearch('Run your search again with the connected provider.'); if (!searchActive) { showingResults = false; signature = ''; $('results-title').textContent = 'Your collection'; } $('requirements').hidden = true; notice('Key loaded. Analyze your photos to make them searchable.'); await refresh(); $('settings').close(); } catch(e) { notice(e.message,true); } finally { $('connect').disabled = false; } };
+$('key-form').onsubmit = async e => { e.preventDefault(); $('connect').disabled = true; try { const modal = $('provider').value === 'modal'; await request('/connect', { key: $('key').value, provider: $('provider').value, ...(modal ? { endpoint: $('modal-endpoint').value.trim() || undefined, visionKey: $('vision-key').value.trim() || undefined } : {}) }); $('key').value = ''; $('vision-key').value = ''; if (searchActive) emptySearch('Run your search again with the connected provider.'); if (!searchActive) { showingResults = false; signature = ''; $('results-title').textContent = 'Your collection'; } $('requirements').hidden = true; notice('Key loaded. Analyze your photos to make them searchable.'); await refresh(); $('settings').close(); } catch(e) { notice(e.message,true); } finally { $('connect').disabled = false; } };
 $('disconnect').onclick = async () => { try { await request('/disconnect',{}); await refresh(); notice('Key forgotten. Saved photos and embeddings are still here.'); } catch(e) { notice(e.message,true); } };
 $('index').onclick = async () => { $('index').disabled = true; try { await request('/index',{}); notice('Analyzing images with the selected provider. Completed photos are saved as we go.'); await refresh(); } catch(e) { notice(e.message,true); } };
 $('pause').onclick = async () => { try { await request('/pause',{}); notice('Pausing after the current photo finishes.'); } catch(e) { notice(e.message,true); } };
@@ -152,7 +160,7 @@ async function runSearch(payload) {
   } catch(e) { if (sequence === searchSequence) { emptySearch('Search did not finish. Try again; no unfiltered photos are shown.'); notice(e.message,true); if (pendingSearch) $('clarification').hidden = false; } }
   finally { searching = false; $('search').textContent = 'Search'; await refresh().catch(e=>notice(e.message,true)); }
 }
-$('search-form').onsubmit = e => { e.preventDefault(); if ($('search').disabled) return; if (!state?.configured) { notice('Load your Gemini or Qwen key to search. Your photos and saved analysis are still here.',true); $('settings').showModal(); return; } cancelClarification(); $('memory-form').hidden = true; runSearch({query:$('prompt').value,verify:$('verify').checked,context:$('use-context').checked,bindings:{}}); };
+$('search-form').onsubmit = e => { e.preventDefault(); if ($('search').disabled) return; if (!state?.configured) { notice('Load a Gemini, Qwen or Modal key to search. Your photos and saved analysis are still here.',true); $('settings').showModal(); return; } cancelClarification(); $('memory-form').hidden = true; runSearch({query:$('prompt').value,verify:$('verify').checked,context:$('use-context').checked,bindings:{}}); };
 $('skip-context').onclick = () => { if (!pendingSearch) return; const payload = {...pendingSearch,context:false,bindings:{}}; cancelClarification(); runSearch(payload); };
 $('cancel-context').onclick = () => { cancelClarification(); emptySearch('Search canceled. Search again or choose Browse collection.'); $('memory-form').hidden = true; notice('Search canceled.'); };
 $('reset').onclick = () => { searchSequence++; searchActive = false; try {sessionStorage.removeItem('captured-active-query');} catch {} cancelClarification(); lastSearch = null; $('context-used').hidden = true; if (!searchActive) { showingResults = false; signature = ''; $('results-title').textContent = 'Your collection'; } $('prompt').value = ''; $('requirements').hidden = true; renderMatches(); notice(''); refresh().catch(e=>notice(e.message,true)); };
@@ -191,11 +199,17 @@ $('scan').onclick = async () => {
 
 $('more').onclick = () => { visiblePhotos += 60; gallery(galleryPhotos,galleryRanked,true); };
 
+const providerNotes = {
+  gemini: 'Google AI Studio key. Your existing Gemini index stays saved when switching providers.',
+  qwen: 'Requires an Alibaba Model Studio Beijing-region key. Photos are sent to that region. Hosted qwen3-vl-embedding is not the open Qwen3-VL-Embedding-8B checkpoint. Qwen requires its own image index; your Gemini index stays saved.',
+  modal: 'Your own Modal deployment (inference/README.md). Paste its INFERENCE_TOKEN as the key. Photos go only to your Modal account for embedding. The first request after 5 idle minutes waits for the model to start, often a minute or more. Modal needs its own image index; your other indexes stay saved. Add a Gemini key for visual checking, personal context and trip people checks.',
+};
 $('provider').onchange = () => {
-  $('key').value = '';
-  $('provider-note').textContent = $('provider').value === 'qwen'
-    ? 'Requires an Alibaba Model Studio Beijing-region key. Photos are sent to that region. Hosted qwen3-vl-embedding is not the open Qwen3-VL-Embedding-8B checkpoint. Qwen requires its own image index; your Gemini index stays saved.'
-    : 'Google AI Studio key. Your existing Gemini index stays saved when switching providers.';
+  $('key').value = ''; $('vision-key').value = '';
+  const modal = $('provider').value === 'modal';
+  $('modal-fields').hidden = !modal;
+  $('key').placeholder = modal ? 'Paste your INFERENCE_TOKEN' : 'Paste your API key';
+  $('provider-note').textContent = providerNotes[$('provider').value];
 };
 
 async function loadMemories() {

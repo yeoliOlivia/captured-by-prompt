@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { createPlaygroundServer } from './server';
-import { CONFIG, geminiProvider, qwenProvider, validateVerification, verificationInstruction } from './providers';
+import { CONFIG, geminiProvider, modalEndpoint, modalProvider, qwenProvider, validateVerification, verificationInstruction, type Provider } from './providers';
 const vec = (n:number,axis=0) => Array.from({length:n},(_,i)=>i===axis?1:0);
 afterEach(()=>vi.unstubAllGlobals());
 describe('provider isolation and visual checks',()=>{
@@ -91,5 +91,66 @@ describe('provider isolation and visual checks',()=>{
   expect(requests[1].body.input.contents).toEqual([{text:'tennis and grass'}]);
   expect(requests[2].body.model).toBe('qwen3-vl-plus');
   expect(JSON.stringify(requests)).not.toContain('private-key');
+ });
+
+ it('sends Modal embeddings to your own endpoint with a bearer token and checks the served model',async()=>{
+  const requests:{url:string;init:any;body:any}[]=[];
+  let served:string=CONFIG.modal.model;
+  const fetcher=(async(url:any,init:any)=>{
+   requests.push({url:String(url),init,body:JSON.parse(init.body)});
+   return new Response(JSON.stringify({embedding:vec(2048,3),dimensions:2048,model:served}),{status:200});
+  }) as typeof fetch;
+  const provider=modalProvider('modal-token-long-enough-1234567890','https://me--captured-inference-embedder-web.modal.run/',undefined,fetcher);
+  expect(await provider.image(Buffer.from('pixels'))).toEqual(vec(2048,3));
+  expect(await provider.text('tennis on grass')).toHaveLength(2048);
+  expect(requests[0].url).toBe('https://me--captured-inference-embedder-web.modal.run/embed');
+  expect(requests[0].body).toEqual({image:'cGl4ZWxz'});
+  expect(requests[1].body).toEqual({text:'tennis on grass'});
+  expect(requests[0].init.headers.Authorization).toBe('Bearer modal-token-long-enough-1234567890');
+  expect(requests[0].init.redirect).toBe('error');
+  expect(JSON.stringify(requests.map(r=>r.body))).not.toContain('modal-token');
+  // Without a Gemini key there is no vision model, so the server can say which features are unavailable.
+  expect(provider.plan).toBeUndefined();expect(provider.verify).toBeUndefined();expect(provider.identify).toBeUndefined();
+  served='some-other-model';
+  await expect(provider.text('x')).rejects.toThrow(/expected qwen3-vl-embedding-2b/);
+  const failing=modalProvider('t'.repeat(32),'https://x.modal.run',undefined,(async()=>new Response('{}',{status:401})) as typeof fetch);
+  await expect(failing.text('x')).rejects.toMatchObject({status:401});
+ });
+ it('accepts only plain https Modal endpoint URLs and delegates visual checks to the vision provider',()=>{
+  expect(modalEndpoint(' https://a.modal.run/ ')).toBe('https://a.modal.run');
+  for(const bad of ['http://a.modal.run','https://user:pw@a.modal.run','https://a.modal.run/?x=1','not a url'])expect(()=>modalEndpoint(bad)).toThrow();
+  const vision:Provider={image:async()=>[],text:async()=>[],plan:async()=>'plan',verify:async()=>'verify',identify:async()=>'identify'};
+  const provider=modalProvider('t'.repeat(32),'https://a.modal.run',vision);
+  expect(provider.plan).toBe(vision.plan);expect(provider.verify).toBe(vision.verify);expect(provider.identify).toBe(vision.identify);
+ });
+ it('connects Modal through the server, keeps a separate index, and explains missing visual checks',async()=>{
+  const datasetDir = await mkdtemp(join(tmpdir(),'captured-modal-'));
+  const urls:string[]=[];
+  vi.stubGlobal('fetch',vi.fn(async(url:any)=>{urls.push(String(url));return new Response(JSON.stringify({embedding:vec(2048),dimensions:2048,model:CONFIG.modal.model}),{status:200});}));
+  const previous=process.env.MODAL_EMBED_URL; delete process.env.MODAL_EMBED_URL;
+  const server = await createPlaygroundServer({datasetDir});
+  try {
+   const token = (await server.inject({url:'/',headers:{host:'localhost'}})).body.match(/name="playground-session" content="([^"]+)"/)![1];
+   const headers = {host:'localhost','x-playground-session':token};
+   const post = (url:string,payload:any={})=>server.inject({method:'POST',url,headers,payload});
+   const state = async()=>(await server.inject({url:'/state',headers})).json();
+   await server.inject({method:'POST',url:'/upload',headers:{...headers,'content-type':'application/octet-stream'},payload:await sharp({create:{width:20,height:20,channels:3,background:'green'}}).png().toBuffer()});
+   const key='modal-token-long-enough-1234567890';
+   expect((await post('/connect',{key,provider:'modal'})).statusCode).toBe(400);
+   expect((await post('/connect',{key,provider:'modal',endpoint:'http://insecure.modal.run'})).statusCode).toBe(400);
+   process.env.MODAL_EMBED_URL='https://env--captured.modal.run';
+   expect((await post('/connect',{key,provider:'modal'})).statusCode).toBe(200);
+   expect((await state()).dimensions).toBe(2048);
+   expect((await state()).visionAvailable).toBe(false);
+   await post('/index');while((await state()).indexing)await new Promise(r=>setTimeout(r,2));
+   expect((await state()).indexed).toBe(1);
+   expect(urls[0]).toBe('https://env--captured.modal.run/embed');
+   expect((await post('/search',{query:'green'})).statusCode).toBe(200);
+   const checked=await post('/search',{query:'green',verify:true});
+   expect(checked.statusCode).toBe(400);
+   expect(checked.json().message).toContain('Gemini key');
+   const photo=(await state()).photos[0];
+   expect(JSON.parse(await readFile(join(datasetDir,`${photo.id}.json`),'utf8')).embeddings['qwen3-vl-embedding-2b:2048']).toHaveLength(2048);
+  } finally { await server.close(); if(previous===undefined)delete process.env.MODAL_EMBED_URL; else process.env.MODAL_EMBED_URL=previous; }
  });
 });

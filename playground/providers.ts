@@ -4,6 +4,9 @@ import { PlanSchema, contextInstruction } from './context.js';
 export const CONFIG = {
   gemini: { model: 'gemini-embedding-2', dimensions: 3072, vision: 'gemini-3.8-flash', label: 'Gemini' },
   qwen: { model: 'qwen3-vl-embedding', dimensions: 2560, vision: 'qwen3-vl-plus', label: 'Qwen (Beijing)' },
+  // Self-hosted Qwen3-VL-Embedding-2B on your Modal account (inference/modal_app.py). Context, visual checks and
+  // people checks use Gemini when a Gemini key is also given, so vision is Gemini's model and shares its tag cache.
+  modal: { model: 'qwen3-vl-embedding-2b', dimensions: 2048, vision: 'gemini-3.8-flash', label: 'Modal (self-hosted Qwen)' },
 } as const;
 export type ProviderName = keyof typeof CONFIG;
 export type Candidate = { id: string; bytes: Buffer };
@@ -107,5 +110,32 @@ export function qwenProvider(key: string, fetcher: typeof fetch = fetch): Provid
       const result = await call('/compatible-mode/v1/chat/completions',{model:config.vision,messages:[{role:'system',content:identifyInstruction},{role:'user',content}],response_format:{type:'json_object'},enable_thinking:false,max_tokens:12000});
       return JSON.parse(result.choices?.[0]?.message?.content ?? '');
     },
+  };
+}
+
+// Modal containers start on demand, so the first request after an idle period waits for a cold start
+// (container boot plus model load) on top of the request itself.
+export const MODAL_TIMEOUT_MS = 240000;
+export function modalEndpoint(value: string): string {
+  const url = new URL(value.trim());
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) throw new Error('Use the https:// endpoint URL printed by modal deploy.');
+  return url.origin + url.pathname.replace(/\/+$/, '');
+}
+export function modalProvider(token: string, endpoint: string, vision?: Provider, fetcher: typeof fetch = fetch): Provider {
+  const config = CONFIG.modal;
+  const base = modalEndpoint(endpoint);
+  const embed = async (body: { text: string } | { image: string }) => {
+    const response = await fetcher(`${base}/embed`, { method:'POST', headers:{ Authorization:`Bearer ${token}`, 'Content-Type':'application/json' }, body:JSON.stringify(body), signal:AbortSignal.timeout(MODAL_TIMEOUT_MS), redirect:'error' });
+    if (!response.ok) throw Object.assign(new Error('Modal request failed'), { status: response.status });
+    const result = await response.json();
+    if (result?.model !== config.model) throw new Error(`Modal endpoint serves ${String(result?.model).slice(0,80)}, expected ${config.model}`);
+    return vector(result.embedding, config.dimensions);
+  };
+  return {
+    image: bytes => embed({ image: bytes.toString('base64') }),
+    text: query => embed({ text: query }),
+    // Phase 1 keeps visual reasoning on Gemini. Without a Gemini key these stay undefined, and the server
+    // reports that context, visual checks and people checks are unavailable.
+    plan: vision?.plan, verify: vision?.verify, identify: vision?.identify,
   };
 }

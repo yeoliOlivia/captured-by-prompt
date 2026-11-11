@@ -1,0 +1,20 @@
+{
+  "note": "Replace with 20-30 non-sensitive photos you own (paths relative to this file). Label each query's relevant photos before running any model. Queries with an empty relevant list check what a provider returns when nothing matches; they are excluded from the averages.",
+  "photos": [
+    { "id": "red-umbrella", "path": "photos/red-umbrella.jpg" },
+    { "id": "green-booths", "path": "photos/green-booths.jpg" },
+    { "id": "green-booths-night", "path": "photos/green-booths-night.jpg" },
+    { "id": "lemon-recipe", "path": "photos/lemon-recipe.jpg" },
+    { "id": "dog-on-sofa", "path": "photos/dog-on-sofa.jpg" },
+    { "id": "distractor-01", "path": "photos/distractor-01.jpg" },
+    { "id": "distractor-02", "path": "photos/distractor-02.jpg" }
+  ],
+  "queries": [
+    { "id": "objects-colors", "query": "A red umbrella on the beach", "relevant": ["red-umbrella"] },
+    { "id": "scene", "query": "The restaurant with green booths", "relevant": ["green-booths", "green-booths-night"] },
+    { "id": "night", "query": "The green booth restaurant at night", "relevant": ["green-booths-night"] },
+    { "id": "visible-text", "query": "The handwritten recipe with lemon", "relevant": ["lemon-recipe"] },
+    { "id": "animal", "query": "The dog on the sofa", "relevant": ["dog-on-sofa"] },
+    { "id": "absent", "query": "A purple elephant riding a skateboard", "relevant": [] }
+  ]
+}

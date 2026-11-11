@@ -9,6 +9,8 @@
     "playground/server.ts",
     "playground/providers.ts",
     "playground/context.ts",
-    "scripts/start-server.ts"
+    "scripts/start-server.ts",
+    "playground/benchmark.ts",
+    "scripts/compare-providers.ts"
   ]
 }

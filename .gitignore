@@ -19,3 +19,7 @@ playground/preview*.png
 !sample-dataset/coco128/
 
 __pycache__/
+
+# Python caches
+__pycache__/
+.pytest_cache/
