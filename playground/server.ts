@@ -29,7 +29,8 @@ function providerError(e: unknown, step = '') {
   if (status === 400 || status === 401 || status === 403) return 'Provider rejected the request. Check the API key, region, and model access.';
   return 'The model could not complete the request. Your photos and completed embeddings are saved. Try again.';
 }
-export async function createPlaygroundServer(options: { datasetDir?: string; mobileToken?: string; providerFactory?: (key: string, name: ProviderName) => Provider } = {}) {
+export async function createPlaygroundServer(options: { datasetDir?: string; mobileToken?: string; providerFactory?: (key: string, name: ProviderName) => Provider;
+  autoConnect?: { key: string; provider: ProviderName; endpoint?: string; visionKey?: string } } = {}) {
   const datasetDir = options.datasetDir ?? resolve(directory, '../sample-dataset');
   await mkdir(datasetDir, { recursive: true });
   if (options.mobileToken && (options.mobileToken.length < 32 || /\s/.test(options.mobileToken))) throw new Error('Mobile access requires a token of at least 32 characters with no whitespace.');
@@ -198,22 +199,34 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
       return { photo: expose(photo), duplicate: false };
     } finally { uploading = false; }
   });
-  server.post('/connect', async (req, reply) => {
-    if (task || searching || tagTask) return reply.code(409).send({ message: 'Wait for the current model request to finish.' });
-    const { key, provider: name, endpoint, visionKey } = z.object({ key: z.string().trim().min(20).max(8192), provider: z.enum(['gemini','qwen','modal']).default('gemini'),
-      endpoint: z.string().trim().max(500).optional(), visionKey: z.string().trim().max(8192).optional() }).parse(req.body);
-    if (/\s/.test(key) || (visionKey && /\s/.test(visionKey))) return reply.code(400).send({ message: 'Paste only the API key.' });
-    if (visionKey && visionKey.length < 20) return reply.code(400).send({ message: 'The Gemini key looks too short.' });
+  type Connection = { key: string; provider: ProviderName; endpoint?: string; visionKey?: string };
+  // Returns an error message for the user, or null once the provider is connected.
+  function connect({ key, provider: name, endpoint, visionKey }: Connection): string | null {
+    if (/\s/.test(key) || (visionKey && /\s/.test(visionKey))) return 'Paste only the API key.';
+    if (visionKey && visionKey.length < 20) return 'The Gemini key looks too short.';
     let next: Provider;
     if (options.providerFactory) next = options.providerFactory(key,name);
     else if (name === 'modal') {
       // The endpoint comes from the form, or from MODAL_EMBED_URL so it need not be pasted each time.
       const url = endpoint || process.env.MODAL_EMBED_URL;
-      if (!url) return reply.code(400).send({ message: 'Paste the Modal endpoint URL printed by modal deploy, or set MODAL_EMBED_URL.' });
+      if (!url) return 'Paste the Modal endpoint URL printed by modal deploy, or set MODAL_EMBED_URL.';
       try { next = modalProvider(key, modalEndpoint(url), visionKey ? geminiProvider(visionKey) : undefined); }
-      catch { return reply.code(400).send({ message: 'Use the https:// endpoint URL printed by modal deploy.' }); }
+      catch (e) { return (e as Error).message.startsWith('That is a Modal dashboard') ? (e as Error).message : 'Use the https:// endpoint URL printed by modal deploy.'; }
     } else next = name === 'qwen' ? qwenProvider(key) : geminiProvider(key);
     provider = next; selected = name; plans.clear(); resolvedQueries.clear(); queries.clear(); verifiedQueries.clear(); error = '';
+    return null;
+  }
+  // Keys saved in a local, git-ignored file (see npm run dev:modal) connect at startup, so they need not be pasted.
+  if (options.autoConnect) {
+    const problem = connect(options.autoConnect);
+    if (problem) throw new Error(`Saved ${options.autoConnect.provider} settings were rejected: ${problem}`);
+  }
+  server.post('/connect', async (req, reply) => {
+    if (task || searching || tagTask) return reply.code(409).send({ message: 'Wait for the current model request to finish.' });
+    const body = z.object({ key: z.string().trim().min(20).max(8192), provider: z.enum(['gemini','qwen','modal']).default('gemini'),
+      endpoint: z.string().trim().max(500).optional(), visionKey: z.string().trim().max(8192).optional() }).parse(req.body);
+    const problem = connect(body);
+    if (problem) return reply.code(400).send({ message: problem });
     return { configured: true };
   });
   server.post('/disconnect', async (_, reply) => {

@@ -37,7 +37,11 @@ if (lan) {
   mobileToken = (await readFile(path,'utf8')).trim();
   console.log(`Mobile access enabled on trusted Wi-Fi. Workspace token is in ${path} (keep it private).`);
 }
-const server = await createPlaygroundServer({datasetDir,mobileToken});
+// npm run dev:modal loads .env.local (git-ignored) and connects Modal at startup, so the key need not be pasted.
+const saved = process.env.MODAL_INFERENCE_TOKEN?.trim();
+const autoConnect = saved ? { provider: 'modal' as const, key: saved, endpoint: process.env.MODAL_EMBED_URL?.trim() || undefined, visionKey: process.env.GEMINI_API_KEY?.trim() || undefined } : undefined;
+if (autoConnect) console.log(`Connecting Modal from saved settings${autoConnect.visionKey ? ' (with Gemini for visual checks)' : ''}.`);
+const server = await createPlaygroundServer({datasetDir,mobileToken,autoConnect});
 await server.listen({host:lan ? '0.0.0.0' : '127.0.0.1',port});
 console.log(`Captured ready at http://127.0.0.1:${port}. Connect a model in the browser; mobile uses the same workspace.`);
 const shutdown = async () => { await server.close(); process.exit(0); };

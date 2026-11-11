@@ -35,7 +35,8 @@ vllm_cache = modal.Volume.from_name("captured-vllm-cache", create_if_missing=Tru
 
 
 @app.cls(
-    gpu="L4",
+    # L4 first; Modal falls back to the next type when no L4 is free.
+    gpu=["L4", "A10G", "L40S"],
     image=image,
     volumes={"/root/.cache/huggingface": hf_cache, "/root/.cache/vllm": vllm_cache},
     secrets=[modal.Secret.from_name("captured-inference")],

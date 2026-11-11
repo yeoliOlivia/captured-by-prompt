@@ -14,7 +14,7 @@ This is phase 1 of the move to Modal. Only embeddings run on Modal. Embeddings a
 
 ## Cost and limits
 
-- **GPU:** one NVIDIA L4 at $0.000222 per second, about $0.80 per hour ([Modal pricing](https://modal.com/pricing), checked 2026-11-09). CPU and memory add roughly $0.20 per hour.
+- **GPU:** one NVIDIA L4 at $0.000222 per second, about $0.80 per hour ([Modal pricing](https://modal.com/pricing), checked 2026-11-09). When no L4 is free, Modal falls back to an A10G (about $1.10 per hour) and then an L40S (about $1.95 per hour). CPU and memory add roughly $0.20 per hour.
 - **Billing:** you pay only while a container runs. It starts on the first request and stops after 5 idle minutes (`SCALEDOWN_SECONDS`).
 - **Spending cap:** `max_containers=1` means at most one GPU runs at a time.
 - **Cold start:** the first request after an idle period waits for the container to boot and the model to load. Expect roughly 30 to 90 seconds. This has not been measured. The app allows 10 minutes per Modal request, enough for the first-ever start, which also downloads the weights.
@@ -43,8 +43,18 @@ Deploying spends Modal credit when the endpoint is used. All commands use `uvx`,
 To check the endpoint without the app:
 
 ```sh
-curl -H "Authorization: Bearer $INFERENCE_TOKEN" <url>/health
+curl -L -H "Authorization: Bearer $INFERENCE_TOKEN" <url>/health
 ```
+
+On a first start this can take a few minutes. Add `-L` so curl follows the redirect Modal sends when a request takes over about 150 seconds; the app does the same.
+
+## Save your settings so you don't paste them every time
+
+1. Copy the example file: `cp .env.local.example .env.local` (from the repository root). Git ignores `.env.local`, so it is never committed.
+2. Open `.env.local` and fill in `MODAL_EMBED_URL` (the `.modal.run` URL), `MODAL_INFERENCE_TOKEN`, and optionally `GEMINI_API_KEY`.
+3. Start the app with `npm run dev:modal` instead of `npm run dev:web`. It starts already connected to Modal. `npm run dev:web` still works as before and ignores the file.
+
+The keys stay in that file and in the server's memory; they are never sent to the browser.
 
 ## Stop or remove
 

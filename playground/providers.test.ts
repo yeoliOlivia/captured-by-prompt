@@ -107,18 +107,28 @@ describe('provider isolation and visual checks',()=>{
   expect(requests[0].body).toEqual({image:'cGl4ZWxz'});
   expect(requests[1].body).toEqual({text:'tennis on grass'});
   expect(requests[0].init.headers.Authorization).toBe('Bearer modal-token-long-enough-1234567890');
-  expect(requests[0].init.redirect).toBe('error');
+  expect(requests[0].init.redirect).toBe('manual');
   expect(JSON.stringify(requests.map(r=>r.body))).not.toContain('modal-token');
   // Without a Gemini key there is no vision model, so the server can say which features are unavailable.
   expect(provider.plan).toBeUndefined();expect(provider.verify).toBeUndefined();expect(provider.identify).toBeUndefined();
   served='some-other-model';
   await expect(provider.text('x')).rejects.toThrow(/expected qwen3-vl-embedding-2b/);
+  // A first start that outlasts Modal's ~150 s request limit comes back as a 303; its location is polled with GET.
+  const seen:{url:string;method:string;auth:string}[]=[];
+  const slowStart=modalProvider('t'.repeat(32),'https://x.modal.run',undefined,(async(url:any,init:any)=>{seen.push({url:String(url),method:init.method,auth:init.headers.Authorization});
+   return seen.length<3?new Response(null,{status:303,headers:{location:'/?__modal_attempt_token=abc'}}):new Response(JSON.stringify({embedding:vec(2048),dimensions:2048,model:CONFIG.modal.model}),{status:200});}) as typeof fetch);
+  expect(await slowStart.text('x')).toHaveLength(2048);
+  expect(seen.map(r=>r.method)).toEqual(['POST','GET','GET']);
+  expect(seen[1].url).toBe('https://x.modal.run/?__modal_attempt_token=abc');
+  expect(seen.every(r=>r.auth==='Bearer '+'t'.repeat(32))).toBe(true);
+  const offsite=modalProvider('t'.repeat(32),'https://x.modal.run',undefined,(async()=>new Response(null,{status:303,headers:{location:'https://evil.example/'}})) as typeof fetch);
+  await expect(offsite.text('x')).rejects.toThrow(/another host/);
   const failing=modalProvider('t'.repeat(32),'https://x.modal.run',undefined,(async()=>new Response('{}',{status:401})) as typeof fetch);
   await expect(failing.text('x')).rejects.toMatchObject({status:401});
  });
  it('accepts only plain https Modal endpoint URLs and delegates visual checks to the vision provider',()=>{
   expect(modalEndpoint(' https://a.modal.run/ ')).toBe('https://a.modal.run');
-  for(const bad of ['http://a.modal.run','https://user:pw@a.modal.run','https://a.modal.run/?x=1','not a url'])expect(()=>modalEndpoint(bad)).toThrow();
+  for(const bad of ['http://a.modal.run','https://user:pw@a.modal.run','https://a.modal.run/?x=1','not a url','https://modal.com/apps/me/main/deployed/captured-inference'])expect(()=>modalEndpoint(bad)).toThrow();
   const vision:Provider={image:async()=>[],text:async()=>[],plan:async()=>'plan',verify:async()=>'verify',identify:async()=>'identify'};
   const provider=modalProvider('t'.repeat(32),'https://a.modal.run',vision);
   expect(provider.plan).toBe(vision.plan);expect(provider.verify).toBe(vision.verify);expect(provider.identify).toBe(vision.identify);
@@ -152,5 +162,17 @@ describe('provider isolation and visual checks',()=>{
    const photo=(await state()).photos[0];
    expect(JSON.parse(await readFile(join(datasetDir,`${photo.id}.json`),'utf8')).embeddings['qwen3-vl-embedding-2b:2048']).toHaveLength(2048);
   } finally { await server.close(); if(previous===undefined)delete process.env.MODAL_EMBED_URL; else process.env.MODAL_EMBED_URL=previous; }
+ });
+ it('connects saved Modal settings at startup without exposing the key',async()=>{
+  const datasetDir = await mkdtemp(join(tmpdir(),'captured-auto-'));
+  const key='saved-modal-token-1234567890abcdef';
+  const server = await createPlaygroundServer({datasetDir,autoConnect:{provider:'modal',key,endpoint:'https://me--captured-inference-embedder-web.us-east.modal.run'}});
+  try {
+   const token = (await server.inject({url:'/',headers:{host:'localhost'}})).body.match(/name="playground-session" content="([^"]+)"/)![1];
+   const state = await server.inject({url:'/state',headers:{host:'localhost','x-playground-session':token}});
+   expect(state.json()).toMatchObject({configured:true,provider:'modal',dimensions:2048,visionAvailable:false});
+   expect(state.body).not.toContain(key);
+  } finally { await server.close(); }
+  await expect(createPlaygroundServer({datasetDir,autoConnect:{provider:'modal',key,endpoint:'https://modal.com/apps/me/main/deployed/captured-inference'}})).rejects.toThrow(/dashboard link/);
  });
 });

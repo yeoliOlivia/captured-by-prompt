@@ -115,17 +115,30 @@ export function qwenProvider(key: string, fetcher: typeof fetch = fetch): Provid
 
 // Modal containers start on demand, so the first request after an idle period waits for a cold start
 // (container boot plus model load) on top of the request itself.
-export const MODAL_TIMEOUT_MS = 240000;
+// Modal answers a web request still running after about 150 seconds (typical on a first start) with a 303
+// redirect to the same host carrying a __modal_attempt_token. A GET to that address waits for the original
+// request's result, so it is polled (with the token header) until the answer arrives or the time limit passes.
+export const MODAL_TIMEOUT_MS = 600000;
 export function modalEndpoint(value: string): string {
   const url = new URL(value.trim());
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) throw new Error('Use the https:// endpoint URL printed by modal deploy.');
+  // A modal.com link is the dashboard website, not the deployed service (which ends in .modal.run).
+  if (url.hostname === 'modal.com' || url.hostname.endsWith('.modal.com')) throw new Error('That is a Modal dashboard link. Use the URL ending in .modal.run printed by modal deploy.');
   return url.origin + url.pathname.replace(/\/+$/, '');
 }
 export function modalProvider(token: string, endpoint: string, vision?: Provider, fetcher: typeof fetch = fetch): Provider {
   const config = CONFIG.modal;
   const base = modalEndpoint(endpoint);
   const embed = async (body: { text: string } | { image: string }) => {
-    const response = await fetcher(`${base}/embed`, { method:'POST', headers:{ Authorization:`Bearer ${token}`, 'Content-Type':'application/json' }, body:JSON.stringify(body), signal:AbortSignal.timeout(MODAL_TIMEOUT_MS), redirect:'error' });
+    const signal = AbortSignal.timeout(MODAL_TIMEOUT_MS);
+    const headers = { Authorization:`Bearer ${token}` };
+    let response = await fetcher(`${base}/embed`, { method:'POST', headers:{ ...headers, 'Content-Type':'application/json' }, body:JSON.stringify(body), signal, redirect:'manual' });
+    while (response.status >= 300 && response.status < 400) {
+      const next = new URL(response.headers.get('location') ?? '', base);
+      // Only ever send the token back to the same Modal endpoint.
+      if (next.origin !== new URL(base).origin) throw Object.assign(new Error('Modal redirected to another host'), { status: response.status });
+      response = await fetcher(next.href, { method:'GET', headers, signal, redirect:'manual' });
+    }
     if (!response.ok) throw Object.assign(new Error('Modal request failed'), { status: response.status });
     const result = await response.json();
     if (result?.model !== config.model) throw new Error(`Modal endpoint serves ${String(result?.model).slice(0,80)}, expected ${config.model}`);
