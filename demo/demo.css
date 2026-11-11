@@ -1,0 +1,10 @@
+/* Additions for the public demo page; everything else comes from the app's styles.css. */
+.demo-tag{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;border:1px solid currentColor;border-radius:999px;padding:3px 9px;opacity:.75}
+.topbar a.pill{text-decoration:none;color:inherit}
+.demo-banner{text-align:center;font-size:14px;line-height:1.5;color:var(--muted);max-width:60ch;margin:-6px auto 0}
+.examples{display:flex;flex-wrap:wrap;justify-content:center;gap:8px}
+.example{border:1px solid var(--line);border-radius:999px;background:var(--paper);color:var(--ink);padding:7px 14px;font-size:14px;cursor:pointer}
+.example:hover,.example:focus-visible{border-color:var(--accent,currentColor)}
+.demo-footer{margin:56px auto 32px;max-width:880px;display:flex;flex-direction:column;gap:10px;font-size:13px;line-height:1.55;color:var(--muted)}
+.demo-footer a{color:inherit}
+@media (max-width:640px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.demo-tag{display:none}}

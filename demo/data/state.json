@@ -1,0 +1,678 @@
+{
+ "model": "gemini-embedding-2",
+ "dimensions": 3072,
+ "total": 134,
+ "indexed": 134,
+ "photos": [
+  {
+   "id": "3cd49249ce0e04bd",
+   "name": "000000000009.jpg",
+   "image": "photos/3cd49249ce0e04bd.jpg"
+  },
+  {
+   "id": "9408da0390468009",
+   "name": "000000000025.jpg",
+   "image": "photos/9408da0390468009.jpg"
+  },
+  {
+   "id": "37e319f0039ab030",
+   "name": "000000000030.jpg",
+   "image": "photos/37e319f0039ab030.jpg"
+  },
+  {
+   "id": "849b9cb2a55a2096",
+   "name": "000000000034.jpg",
+   "image": "photos/849b9cb2a55a2096.jpg"
+  },
+  {
+   "id": "661a2b988c18e09f",
+   "name": "000000000036.jpg",
+   "image": "photos/661a2b988c18e09f.jpg"
+  },
+  {
+   "id": "9d8f282a73322247",
+   "name": "000000000042.jpg",
+   "image": "photos/9d8f282a73322247.jpg"
+  },
+  {
+   "id": "bc9dd506ac702367",
+   "name": "000000000049.jpg",
+   "image": "photos/bc9dd506ac702367.jpg"
+  },
+  {
+   "id": "7a34501a98f106d2",
+   "name": "000000000061.jpg",
+   "image": "photos/7a34501a98f106d2.jpg"
+  },
+  {
+   "id": "b6743991573182c1",
+   "name": "000000000064.jpg",
+   "image": "photos/b6743991573182c1.jpg"
+  },
+  {
+   "id": "b2f284a5ffa6144a",
+   "name": "000000000071.jpg",
+   "image": "photos/b2f284a5ffa6144a.jpg"
+  },
+  {
+   "id": "b5bc7d24f8e2e27c",
+   "name": "000000000072.jpg",
+   "image": "photos/b5bc7d24f8e2e27c.jpg"
+  },
+  {
+   "id": "9e6c4e942491934d",
+   "name": "000000000073.jpg",
+   "image": "photos/9e6c4e942491934d.jpg"
+  },
+  {
+   "id": "abcfd3180ac4e06a",
+   "name": "000000000074.jpg",
+   "image": "photos/abcfd3180ac4e06a.jpg"
+  },
+  {
+   "id": "61849781e88a3111",
+   "name": "000000000077.jpg",
+   "image": "photos/61849781e88a3111.jpg"
+  },
+  {
+   "id": "7d6a002707e155e4",
+   "name": "000000000078.jpg",
+   "image": "photos/7d6a002707e155e4.jpg"
+  },
+  {
+   "id": "95b17c7d23882acd",
+   "name": "000000000081.jpg",
+   "image": "photos/95b17c7d23882acd.jpg"
+  },
+  {
+   "id": "678f109b95e6417b",
+   "name": "000000000086.jpg",
+   "image": "photos/678f109b95e6417b.jpg"
+  },
+  {
+   "id": "5856a3e7dabb8a90",
+   "name": "000000000089.jpg",
+   "image": "photos/5856a3e7dabb8a90.jpg"
+  },
+  {
+   "id": "bb72fca46e30fa7f",
+   "name": "000000000092.jpg",
+   "image": "photos/bb72fca46e30fa7f.jpg"
+  },
+  {
+   "id": "28551c2bc2382fea",
+   "name": "000000000094.jpg",
+   "image": "photos/28551c2bc2382fea.jpg"
+  },
+  {
+   "id": "c9636424220fb6ce",
+   "name": "000000000109.jpg",
+   "image": "photos/c9636424220fb6ce.jpg"
+  },
+  {
+   "id": "bc3a0ea9c32a8896",
+   "name": "000000000110.jpg",
+   "image": "photos/bc3a0ea9c32a8896.jpg"
+  },
+  {
+   "id": "855bc8ffe1eac5a2",
+   "name": "000000000113.jpg",
+   "image": "photos/855bc8ffe1eac5a2.jpg"
+  },
+  {
+   "id": "33dfd687a5e63983",
+   "name": "000000000127.jpg",
+   "image": "photos/33dfd687a5e63983.jpg"
+  },
+  {
+   "id": "472f549c0a1e9354",
+   "name": "000000000133.jpg",
+   "image": "photos/472f549c0a1e9354.jpg"
+  },
+  {
+   "id": "c887e6e2c90b3de8",
+   "name": "000000000136.jpg",
+   "image": "photos/c887e6e2c90b3de8.jpg"
+  },
+  {
+   "id": "1732ee45c827e6cf",
+   "name": "000000000138.jpg",
+   "image": "photos/1732ee45c827e6cf.jpg"
+  },
+  {
+   "id": "40ffc5949c62a3ae",
+   "name": "000000000142.jpg",
+   "image": "photos/40ffc5949c62a3ae.jpg"
+  },
+  {
+   "id": "edc10df5ae793eea",
+   "name": "000000000143.jpg",
+   "image": "photos/edc10df5ae793eea.jpg"
+  },
+  {
+   "id": "fa6dfaaefaa60c5a",
+   "name": "000000000144.jpg",
+   "image": "photos/fa6dfaaefaa60c5a.jpg"
+  },
+  {
+   "id": "84a90937af25cce8",
+   "name": "000000000149.jpg",
+   "image": "photos/84a90937af25cce8.jpg"
+  },
+  {
+   "id": "43c418f8dae33f6e",
+   "name": "000000000151.jpg",
+   "image": "photos/43c418f8dae33f6e.jpg"
+  },
+  {
+   "id": "e284c7ed5e1bb081",
+   "name": "000000000154.jpg",
+   "image": "photos/e284c7ed5e1bb081.jpg"
+  },
+  {
+   "id": "b153f4a57ba4564f",
+   "name": "000000000164.jpg",
+   "image": "photos/b153f4a57ba4564f.jpg"
+  },
+  {
+   "id": "27aa169c28876235",
+   "name": "000000000165.jpg",
+   "image": "photos/27aa169c28876235.jpg"
+  },
+  {
+   "id": "043b5997b8115ab1",
+   "name": "000000000192.jpg",
+   "image": "photos/043b5997b8115ab1.jpg"
+  },
+  {
+   "id": "ee5437146036ea85",
+   "name": "000000000194.jpg",
+   "image": "photos/ee5437146036ea85.jpg"
+  },
+  {
+   "id": "6bdb3769e84f938c",
+   "name": "000000000196.jpg",
+   "image": "photos/6bdb3769e84f938c.jpg"
+  },
+  {
+   "id": "077668ac3dde409b",
+   "name": "000000000201.jpg",
+   "image": "photos/077668ac3dde409b.jpg"
+  },
+  {
+   "id": "11cf2f9d9aaf1425",
+   "name": "000000000208.jpg",
+   "image": "photos/11cf2f9d9aaf1425.jpg"
+  },
+  {
+   "id": "49504efe8a44c404",
+   "name": "000000000241.jpg",
+   "image": "photos/49504efe8a44c404.jpg"
+  },
+  {
+   "id": "fa027d3f3f7b3493",
+   "name": "000000000247.jpg",
+   "image": "photos/fa027d3f3f7b3493.jpg"
+  },
+  {
+   "id": "1424aca42f5b38f1",
+   "name": "000000000250.jpg",
+   "image": "photos/1424aca42f5b38f1.jpg"
+  },
+  {
+   "id": "c226ada2e63a767a",
+   "name": "000000000257.jpg",
+   "image": "photos/c226ada2e63a767a.jpg"
+  },
+  {
+   "id": "813e456d4885e17c",
+   "name": "000000000260.jpg",
+   "image": "photos/813e456d4885e17c.jpg"
+  },
+  {
+   "id": "861fa5ed549aa7b2",
+   "name": "000000000263.jpg",
+   "image": "photos/861fa5ed549aa7b2.jpg"
+  },
+  {
+   "id": "5b0067cc04777d8d",
+   "name": "000000000283.jpg",
+   "image": "photos/5b0067cc04777d8d.jpg"
+  },
+  {
+   "id": "db66ff77fcabeb89",
+   "name": "000000000294.jpg",
+   "image": "photos/db66ff77fcabeb89.jpg"
+  },
+  {
+   "id": "d7859674a5a2cb4e",
+   "name": "000000000307.jpg",
+   "image": "photos/d7859674a5a2cb4e.jpg"
+  },
+  {
+   "id": "6ae13677ebfee1ea",
+   "name": "000000000308.jpg",
+   "image": "photos/6ae13677ebfee1ea.jpg"
+  },
+  {
+   "id": "a298ca8daf4d74ac",
+   "name": "000000000309.jpg",
+   "image": "photos/a298ca8daf4d74ac.jpg"
+  },
+  {
+   "id": "ec1bfad49e6a5b6b",
+   "name": "000000000312.jpg",
+   "image": "photos/ec1bfad49e6a5b6b.jpg"
+  },
+  {
+   "id": "c25b0b55af7acb5c",
+   "name": "000000000315.jpg",
+   "image": "photos/c25b0b55af7acb5c.jpg"
+  },
+  {
+   "id": "81b66a5e170e0525",
+   "name": "000000000321.jpg",
+   "image": "photos/81b66a5e170e0525.jpg"
+  },
+  {
+   "id": "f551f2f94dba7e6c",
+   "name": "000000000322.jpg",
+   "image": "photos/f551f2f94dba7e6c.jpg"
+  },
+  {
+   "id": "f62b84f755d5f6a6",
+   "name": "000000000326.jpg",
+   "image": "photos/f62b84f755d5f6a6.jpg"
+  },
+  {
+   "id": "53a4d424e28af67b",
+   "name": "000000000328.jpg",
+   "image": "photos/53a4d424e28af67b.jpg"
+  },
+  {
+   "id": "6b72af90417fe6d5",
+   "name": "000000000332.jpg",
+   "image": "photos/6b72af90417fe6d5.jpg"
+  },
+  {
+   "id": "aca9553cb2a0b071",
+   "name": "000000000338.jpg",
+   "image": "photos/aca9553cb2a0b071.jpg"
+  },
+  {
+   "id": "77ff8d9778ec9bfc",
+   "name": "000000000349.jpg",
+   "image": "photos/77ff8d9778ec9bfc.jpg"
+  },
+  {
+   "id": "be11185896dff2c2",
+   "name": "000000000357.jpg",
+   "image": "photos/be11185896dff2c2.jpg"
+  },
+  {
+   "id": "8c3769a3b5c791fb",
+   "name": "000000000359.jpg",
+   "image": "photos/8c3769a3b5c791fb.jpg"
+  },
+  {
+   "id": "0e3ea8bfb8f0c20f",
+   "name": "000000000360.jpg",
+   "image": "photos/0e3ea8bfb8f0c20f.jpg"
+  },
+  {
+   "id": "30cb6c9a8e77599d",
+   "name": "000000000368.jpg",
+   "image": "photos/30cb6c9a8e77599d.jpg"
+  },
+  {
+   "id": "910de946eed54919",
+   "name": "000000000370.jpg",
+   "image": "photos/910de946eed54919.jpg"
+  },
+  {
+   "id": "9d21b0fb8ecb7828",
+   "name": "000000000382.jpg",
+   "image": "photos/9d21b0fb8ecb7828.jpg"
+  },
+  {
+   "id": "3dae9857d3965950",
+   "name": "000000000384.jpg",
+   "image": "photos/3dae9857d3965950.jpg"
+  },
+  {
+   "id": "cd2553ed8af5b459",
+   "name": "000000000387.jpg",
+   "image": "photos/cd2553ed8af5b459.jpg"
+  },
+  {
+   "id": "97b7fbb2383a16fe",
+   "name": "000000000389.jpg",
+   "image": "photos/97b7fbb2383a16fe.jpg"
+  },
+  {
+   "id": "b8fcf74c6aa679b3",
+   "name": "000000000394.jpg",
+   "image": "photos/b8fcf74c6aa679b3.jpg"
+  },
+  {
+   "id": "4324dbe1014aab74",
+   "name": "000000000395.jpg",
+   "image": "photos/4324dbe1014aab74.jpg"
+  },
+  {
+   "id": "9839a9ac778a8d4f",
+   "name": "000000000397.jpg",
+   "image": "photos/9839a9ac778a8d4f.jpg"
+  },
+  {
+   "id": "92dde31056f31ed6",
+   "name": "000000000400.jpg",
+   "image": "photos/92dde31056f31ed6.jpg"
+  },
+  {
+   "id": "daf750ef68f1de0b",
+   "name": "000000000404.jpg",
+   "image": "photos/daf750ef68f1de0b.jpg"
+  },
+  {
+   "id": "a1e44aa25dc32dab",
+   "name": "000000000415.jpg",
+   "image": "photos/a1e44aa25dc32dab.jpg"
+  },
+  {
+   "id": "4495a28409f57d5a",
+   "name": "000000000419.jpg",
+   "image": "photos/4495a28409f57d5a.jpg"
+  },
+  {
+   "id": "0e1e58d8105d1eba",
+   "name": "000000000428.jpg",
+   "image": "photos/0e1e58d8105d1eba.jpg"
+  },
+  {
+   "id": "f16ef73f53dc42fb",
+   "name": "000000000431.jpg",
+   "image": "photos/f16ef73f53dc42fb.jpg"
+  },
+  {
+   "id": "49a4deaaab936a6e",
+   "name": "000000000436.jpg",
+   "image": "photos/49a4deaaab936a6e.jpg"
+  },
+  {
+   "id": "e5b5a4896e18ec9e",
+   "name": "000000000438.jpg",
+   "image": "photos/e5b5a4896e18ec9e.jpg"
+  },
+  {
+   "id": "15a4eada5695de52",
+   "name": "000000000443.jpg",
+   "image": "photos/15a4eada5695de52.jpg"
+  },
+  {
+   "id": "486fe18e6a0610e8",
+   "name": "000000000446.jpg",
+   "image": "photos/486fe18e6a0610e8.jpg"
+  },
+  {
+   "id": "f328da390bacf3f0",
+   "name": "000000000450.jpg",
+   "image": "photos/f328da390bacf3f0.jpg"
+  },
+  {
+   "id": "9c913ea1e9d21d3b",
+   "name": "000000000459.jpg",
+   "image": "photos/9c913ea1e9d21d3b.jpg"
+  },
+  {
+   "id": "a72f8913831ec684",
+   "name": "000000000471.jpg",
+   "image": "photos/a72f8913831ec684.jpg"
+  },
+  {
+   "id": "106fb1e4b5a5302d",
+   "name": "000000000472.jpg",
+   "image": "photos/106fb1e4b5a5302d.jpg"
+  },
+  {
+   "id": "043065603266ab5b",
+   "name": "000000000474.jpg",
+   "image": "photos/043065603266ab5b.jpg"
+  },
+  {
+   "id": "903ac2dab2de9085",
+   "name": "000000000486.jpg",
+   "image": "photos/903ac2dab2de9085.jpg"
+  },
+  {
+   "id": "6d0a8037bb40077b",
+   "name": "000000000488.jpg",
+   "image": "photos/6d0a8037bb40077b.jpg"
+  },
+  {
+   "id": "073756821f70a9a4",
+   "name": "000000000490.jpg",
+   "image": "photos/073756821f70a9a4.jpg"
+  },
+  {
+   "id": "169b4d0d37ce1dda",
+   "name": "000000000491.jpg",
+   "image": "photos/169b4d0d37ce1dda.jpg"
+  },
+  {
+   "id": "08457a97ee3ae271",
+   "name": "000000000502.jpg",
+   "image": "photos/08457a97ee3ae271.jpg"
+  },
+  {
+   "id": "5b3f512f2ce1ea6c",
+   "name": "000000000508.jpg",
+   "image": "photos/5b3f512f2ce1ea6c.jpg"
+  },
+  {
+   "id": "e6e039703967ab4f",
+   "name": "000000000510.jpg",
+   "image": "photos/e6e039703967ab4f.jpg"
+  },
+  {
+   "id": "ca629ae3d8875512",
+   "name": "000000000514.jpg",
+   "image": "photos/ca629ae3d8875512.jpg"
+  },
+  {
+   "id": "3d965536be563b58",
+   "name": "000000000520.jpg",
+   "image": "photos/3d965536be563b58.jpg"
+  },
+  {
+   "id": "2d630e2dee1d21c7",
+   "name": "000000000529.jpg",
+   "image": "photos/2d630e2dee1d21c7.jpg"
+  },
+  {
+   "id": "7320109e285bc3e7",
+   "name": "000000000531.jpg",
+   "image": "photos/7320109e285bc3e7.jpg"
+  },
+  {
+   "id": "3191981cd2d15d5a",
+   "name": "000000000532.jpg",
+   "image": "photos/3191981cd2d15d5a.jpg"
+  },
+  {
+   "id": "274fc51e401fcd83",
+   "name": "000000000536.jpg",
+   "image": "photos/274fc51e401fcd83.jpg"
+  },
+  {
+   "id": "8859baf578370061",
+   "name": "000000000540.jpg",
+   "image": "photos/8859baf578370061.jpg"
+  },
+  {
+   "id": "79b4bc7fcc5599d5",
+   "name": "000000000542.jpg",
+   "image": "photos/79b4bc7fcc5599d5.jpg"
+  },
+  {
+   "id": "13a840c30963039a",
+   "name": "000000000544.jpg",
+   "image": "photos/13a840c30963039a.jpg"
+  },
+  {
+   "id": "231ca91ca9dd415f",
+   "name": "000000000560.jpg",
+   "image": "photos/231ca91ca9dd415f.jpg"
+  },
+  {
+   "id": "df8f2862d3f74ad8",
+   "name": "000000000562.jpg",
+   "image": "photos/df8f2862d3f74ad8.jpg"
+  },
+  {
+   "id": "20d15a846187a184",
+   "name": "000000000564.jpg",
+   "image": "photos/20d15a846187a184.jpg"
+  },
+  {
+   "id": "16646b04cddf2d3f",
+   "name": "000000000569.jpg",
+   "image": "photos/16646b04cddf2d3f.jpg"
+  },
+  {
+   "id": "e92a15e2d45d8f4e",
+   "name": "000000000572.jpg",
+   "image": "photos/e92a15e2d45d8f4e.jpg"
+  },
+  {
+   "id": "8ea8d3fc07eaf024",
+   "name": "000000000575.jpg",
+   "image": "photos/8ea8d3fc07eaf024.jpg"
+  },
+  {
+   "id": "5cd0fc1e2917b010",
+   "name": "000000000581.jpg",
+   "image": "photos/5cd0fc1e2917b010.jpg"
+  },
+  {
+   "id": "be8e7a1fbc9c4374",
+   "name": "000000000584.jpg",
+   "image": "photos/be8e7a1fbc9c4374.jpg"
+  },
+  {
+   "id": "e36c020895b310b7",
+   "name": "000000000589.jpg",
+   "image": "photos/e36c020895b310b7.jpg"
+  },
+  {
+   "id": "41aff0f492835d45",
+   "name": "000000000590.jpg",
+   "image": "photos/41aff0f492835d45.jpg"
+  },
+  {
+   "id": "c2a6cccd426c081f",
+   "name": "000000000595.jpg",
+   "image": "photos/c2a6cccd426c081f.jpg"
+  },
+  {
+   "id": "940f57e13e012ad0",
+   "name": "000000000597.jpg",
+   "image": "photos/940f57e13e012ad0.jpg"
+  },
+  {
+   "id": "18888b99c5ca9a6f",
+   "name": "000000000599.jpg",
+   "image": "photos/18888b99c5ca9a6f.jpg"
+  },
+  {
+   "id": "c4cad055bea90bdf",
+   "name": "000000000605.jpg",
+   "image": "photos/c4cad055bea90bdf.jpg"
+  },
+  {
+   "id": "318a3bda790c3add",
+   "name": "000000000612.jpg",
+   "image": "photos/318a3bda790c3add.jpg"
+  },
+  {
+   "id": "fa87d0e94743122c",
+   "name": "000000000620.jpg",
+   "image": "photos/fa87d0e94743122c.jpg"
+  },
+  {
+   "id": "7d4d703a17d3aed5",
+   "name": "000000000623.jpg",
+   "image": "photos/7d4d703a17d3aed5.jpg"
+  },
+  {
+   "id": "59a4ec4b472b825f",
+   "name": "000000000625.jpg",
+   "image": "photos/59a4ec4b472b825f.jpg"
+  },
+  {
+   "id": "4d2db5564b4c99f5",
+   "name": "000000000626.jpg",
+   "image": "photos/4d2db5564b4c99f5.jpg"
+  },
+  {
+   "id": "85705cb2c9f0739f",
+   "name": "000000000629.jpg",
+   "image": "photos/85705cb2c9f0739f.jpg"
+  },
+  {
+   "id": "bd8352e1795d52eb",
+   "name": "000000000634.jpg",
+   "image": "photos/bd8352e1795d52eb.jpg"
+  },
+  {
+   "id": "ce6273466081d0aa",
+   "name": "000000000636.jpg",
+   "image": "photos/ce6273466081d0aa.jpg"
+  },
+  {
+   "id": "0f10e10aac13c9b0",
+   "name": "000000000641.jpg",
+   "image": "photos/0f10e10aac13c9b0.jpg"
+  },
+  {
+   "id": "d69c7ee2f4528be1",
+   "name": "000000000643.jpg",
+   "image": "photos/d69c7ee2f4528be1.jpg"
+  },
+  {
+   "id": "c9324f5db7ff797b",
+   "name": "000000000650.jpg",
+   "image": "photos/c9324f5db7ff797b.jpg"
+  },
+  {
+   "id": "e15e3c1139e83308",
+   "name": "astronaut.png",
+   "image": "photos/e15e3c1139e83308.jpg"
+  },
+  {
+   "id": "851daaafeacc8e7d",
+   "name": "camera.png",
+   "image": "photos/851daaafeacc8e7d.jpg"
+  },
+  {
+   "id": "678cebc80f266af8",
+   "name": "chelsea.png",
+   "image": "photos/678cebc80f266af8.jpg"
+  },
+  {
+   "id": "54778380aea1a177",
+   "name": "coffee.png",
+   "image": "photos/54778380aea1a177.jpg"
+  },
+  {
+   "id": "e4949ce3f4c47a10",
+   "name": "coins.png",
+   "image": "photos/e4949ce3f4c47a10.jpg"
+  },
+  {
+   "id": "d6fdc8b507009f73",
+   "name": "rocket.jpg",
+   "image": "photos/d6fdc8b507009f73.jpg"
+  }
+ ]
+}

@@ -1,0 +1,7 @@
+{"memories":[
+ {"id":"demo-me","kind":"person","name":"Maya","isMe":true},
+ {"id":"demo-jordan","kind":"person","name":"Jordan"},
+ {"id":"demo-sam","kind":"person","name":"Sam"},
+ {"id":"demo-lisbon","kind":"event","name":"Lisbon trip","startDate":"2026-06-12","memberIds":["demo-me","demo-jordan","demo-sam"]},
+ {"id":"demo-safari","kind":"event","name":"Safari weekend","memberIds":["demo-jordan","demo-sam"]}
+]}
