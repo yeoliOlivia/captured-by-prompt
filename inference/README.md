@@ -17,7 +17,7 @@ This is phase 1 of the move to Modal. Only embeddings run on Modal. Embeddings a
 - **GPU:** one NVIDIA L4 at $0.000222 per second, about $0.80 per hour ([Modal pricing](https://modal.com/pricing), checked 2026-11-09). CPU and memory add roughly $0.20 per hour.
 - **Billing:** you pay only while a container runs. It starts on the first request and stops after 5 idle minutes (`SCALEDOWN_SECONDS`).
 - **Spending cap:** `max_containers=1` means at most one GPU runs at a time.
-- **Cold start:** the first request after an idle period waits for the container to boot and the model to load. Expect roughly 30 to 90 seconds. This has not been measured. The app allows 240 seconds per Modal request.
+- **Cold start:** the first request after an idle period waits for the container to boot and the model to load. Expect roughly 30 to 90 seconds. This has not been measured. The app allows 10 minutes per Modal request, enough for the first-ever start, which also downloads the weights.
 - **Weights:** they download from Hugging Face once into the `captured-hf-cache` Volume. A Volume is Modal's persistent disk, and the weights take about 4.5 GB. Modal includes 1 TiB of Volume storage per month free.
 
 ## Deploy

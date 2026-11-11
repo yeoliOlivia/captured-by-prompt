@@ -10,8 +10,6 @@ import threading
 
 import modal
 
-from embed_api import create_app
-
 MODEL = "Qwen/Qwen3-VL-Embedding-2B"
 # Name the app reports to clients; playground/providers.ts CONFIG.modal.model must match.
 MODEL_ID = "qwen3-vl-embedding-2b"
@@ -82,4 +80,7 @@ class Embedder:
 
     @modal.asgi_app()
     def web(self):
+        # Imported here, inside the container, so `modal deploy` does not need FastAPI installed locally.
+        from embed_api import create_app
+
         return create_app(self.embed, os.environ["INFERENCE_TOKEN"], MODEL_ID, DIMENSIONS)
