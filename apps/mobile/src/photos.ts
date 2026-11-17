@@ -4,6 +4,7 @@ import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { Directory, File, Paths } from 'expo-file-system';
 import * as Crypto from 'expo-crypto';
 import { exifDate, type Photo } from '@captured/core';
+import { exifPlace } from '@captured/core/current';
 import { store } from './store';
 
 function directory() {
@@ -37,7 +38,7 @@ export async function selectPhotos(): Promise<number> {
       const extension = asset.uri.split('.').pop()?.split('?')[0]?.replace(/[^a-zA-Z0-9]/g, '') || 'jpg';
       const file = new File(directory(), `${id}.${extension}`);
       new File(asset.uri).copy(file);
-      imported.push({ id, assetId: asset.assetId ?? null, uri: file.uri, width: asset.width, height: asset.height, capturedAt: exifDate(asset.exif), status: 'pending', analysis: null, error: null, addedAt: new Date().toISOString() });
+      imported.push({ id, assetId: asset.assetId ?? null, uri: file.uri, width: asset.width, height: asset.height, capturedAt: exifDate(asset.exif), place: exifPlace(asset.exif), status: 'pending', analysis: null, error: null, addedAt: new Date().toISOString() });
     }
     await store.add(imported);
     return imported.length;

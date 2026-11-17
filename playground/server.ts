@@ -9,6 +9,7 @@ import { mkdir, readFile, writeFile, rename, readdir, stat } from 'node:fs/promi
 import { resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import { createRequire } from 'node:module';
 const directory = fileURLToPath(new URL('.', import.meta.url));
 
 import { COLLECTION_LIMIT as PHOTO_LIMIT, PhotoScope } from '@captured/core/current';
@@ -21,6 +22,34 @@ const TAG_BATCH = 12;
 const contributorOf = (sourcePath: string) => { const parts = sourcePath.split(/[\\/]/); return parts.length >= 3 ? parts[1].slice(0,100) : null; };
 const safeName = (s: string) => s.replace(/[^\p{L}\p{N} ._-]/gu,'').replace(/^[ .]+/,'').trim().slice(0,80) || 'untitled';
 const tripDay = (p: Photo) => p.capturedAt?.slice(0,10) ?? '';
+const leafletFile = (name: string) => createRequire(import.meta.url).resolve(`leaflet/dist/${name}`);
+const coarse = (v: number) => Math.round(v * 100) / 100;
+// Optional upload headers from the phone app: capture date or time, a location it rounds again here, and whose phone.
+const PhoneHeaders = z.object({
+  'x-captured-at': z.string().regex(/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}([+-]\d{2}:\d{2})?)?$/).optional().catch(undefined),
+  'x-place': z.string().regex(/^-?\d{1,2}(\.\d+)?,-?\d{1,3}(\.\d+)?$/).optional().catch(undefined),
+  'x-contributor': z.string().max(300).optional().catch(undefined),
+});
+export function phoneMetadata(headers: Record<string, unknown>) {
+  const h = PhoneHeaders.parse(headers);
+  const [lat, lon] = (h['x-place'] ?? '').split(',').map(Number);
+  const place = h['x-place'] && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && (lat || lon) ? { lat: coarse(lat), lon: coarse(lon) } : null;
+  let contributor: string | null = null;
+  try { contributor = h['x-contributor'] ? decodeURIComponent(h['x-contributor']).replace(/[\x00-\x1f]/g, '').trim().slice(0,100) || null : null; } catch { /* Malformed names are ignored. */ }
+  return { capturedAt: h['x-captured-at'] ?? null, place, contributor };
+}
+// Groups trip photos by their rounded location (about 1 km), with who was found in each spot.
+export function tripPlaces(inTrip: Photo[], present: { photoId: string; memoryId: string }[]) {
+  const spots = new Map<string, { lat: number; lon: number; photoIds: string[]; people: Set<string> }>();
+  for (const p of [...inTrip].sort((a, b) => (a.capturedAt ?? '').localeCompare(b.capturedAt ?? ''))) {
+    if (!p.place) continue;
+    const key = `${p.place.lat},${p.place.lon}`;
+    const spot = spots.get(key) ?? { ...p.place, photoIds: [], people: new Set<string>() };
+    spot.photoIds.push(p.id); spots.set(key, spot);
+  }
+  for (const t of present) for (const spot of spots.values()) if (spot.photoIds.includes(t.photoId)) spot.people.add(t.memoryId);
+  return [...spots.values()].map(s => ({ lat: s.lat, lon: s.lon, count: s.photoIds.length, cover: s.photoIds[0], photoIds: s.photoIds.slice(0, 24), people: [...s.people] }));
+}
 function providerError(e: unknown, step = '') {
   const status = Number((e as any)?.status ?? (e as any)?.statusCode);
   // Keys travel in headers, never in messages; this shows the provider's real reason in the terminal.
@@ -130,7 +159,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
   const verifiedQueries = new Map<string, ReturnType<typeof validateVerification>>();
   const queries = new Map<string, number[]>();
   // folder: the source folder inside the collection, so the reference picker can filter by it.
-  const expose = (p: Photo) => ({ id: p.id, name: p.name, image: `/photos/${p.id}`, indexed: !!embeddingFor(p), capturedAt: p.capturedAt ?? null, contributor: p.contributor ?? null,
+  const expose = (p: Photo) => ({ id: p.id, name: p.name, image: `/photos/${p.id}`, indexed: !!embeddingFor(p), capturedAt: p.capturedAt ?? null, contributor: p.contributor ?? null, place: p.place ?? null,
     folder: p.source ? p.source.path.split(/[\\/]/).slice(0, -1).join('/') : '' });
   let tagTask: Promise<void> | null = null, tagging: { tripId: string; done: number; total: number } | null = null, tagError = '', identifyCalls = 0;
   server.addHook('onRequest', async (request, reply) => {
@@ -142,7 +171,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
     if ((!local || request.headers.authorization) && !authenticated) return reply.code(401).send({message:'Connect using the workspace token in mobile Settings.'});
     if (authenticated && request.headers.origin && request.headers.origin !== `http://${host}`) return reply.code(403).send({message:'Cross-origin access is not allowed.'});
     reply.header('Cache-Control', 'no-store').header('Referrer-Policy', 'no-referrer').header('X-Content-Type-Options', 'nosniff');
-    reply.header('Content-Security-Policy', "default-src 'self'; img-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+    reply.header('Content-Security-Policy', "default-src 'self'; img-src 'self' https://tile.openstreetmap.org; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     if (request.method === 'POST' && !authenticated) {
       if (request.headers.origin && request.headers.origin !== `http://${host}`) return reply.code(403).send({ message: 'Use the local page.' });
       const supplied = Buffer.from(String(request.headers['x-playground-session'] ?? ''));
@@ -157,6 +186,9 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
   server.get('/landing.js', async (_, reply) => reply.type('text/javascript').send(await readFile(resolve(directory, 'landing.js'), 'utf8')));
   server.get('/theme.js', async (_, reply) => reply.type('text/javascript').send(await readFile(resolve(directory, 'theme.js'), 'utf8')));
   server.get('/search-utils.js', async (_, reply) => reply.type('text/javascript').send(await readFile(resolve(directory, '../packages/core/src/strictness.js'), 'utf8')));
+  // Leaflet is served from node_modules so the page loads no third-party scripts; only map tiles come from OpenStreetMap.
+  server.get('/vendor/leaflet.js', async (_, reply) => reply.type('text/javascript').send(await readFile(leafletFile('leaflet.js'), 'utf8')));
+  server.get('/vendor/leaflet.css', async (_, reply) => reply.type('text/css').send(await readFile(leafletFile('leaflet.css'), 'utf8')));
   server.get('/context', async () => ({memories:contextStore.list()}));
   server.post('/context/save', async (req,reply) => {
     if (searching) return reply.code(409).send({message:'Wait for this search to finish.'});
@@ -193,7 +225,11 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
       if (existing) return { photo: expose(existing), duplicate: true };
       if (photos.length >= PHOTO_LIMIT) return reply.code(400).send({ message: 'This collection supports up to 10,000 photos.' });
       const name = decodeURIComponent(String(req.headers['x-file-name'] ?? 'Photo')).replace(/[\x00-\x1f]/g, '').slice(0,200) || 'Photo';
-      const photo: Photo = { id, name, ...await readPhotoMetadata(req.body), contributor: null, metadataVersion: METADATA_VERSION };
+      // Phone previews are re-encoded before upload, so the phone sends what it read from the original instead.
+      const meta = await readPhotoMetadata(req.body), sent = phoneMetadata(req.headers);
+      const me = req.headers.authorization ? contextStore.list().find(m => m.isMe) : undefined;
+      const photo: Photo = { id, name, capturedAt: meta.capturedAt ?? sent.capturedAt, place: meta.place ?? sent.place,
+        contributor: sent.contributor ?? me?.name ?? null, metadataVersion: METADATA_VERSION };
       await writeFile(resolve(datasetDir, `${id}.jpg`), bytes);
       await save(photo); photos.push(photo);
       return { photo: expose(photo), duplicate: false };
@@ -375,6 +411,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
       cover: [...inTrip].sort((a, b) => tripDay(a).localeCompare(tripDay(b)))[0]?.id ?? null,
       undated: photos.filter(p => !p.capturedAt && !linked.has(p.id)).length,
       contributors: [...new Set(inTrip.map(p => p.contributor).filter(Boolean))],
+      places: tripPlaces(inTrip, tags.filter(t => t.status === 'present')), unplaced: inTrip.filter(p => !p.place).length,
       tagging: tagging?.tripId === trip.id ? tagging : null, error: tagError,
       members: members.map(m => {
         const pick = (status: PhotoTag['status']) => tags.filter(t => t.memoryId === m.id && t.status === status).map(t => byId.get(t.photoId)!)
@@ -437,7 +474,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
         if (info && info.size === p.source.size && info.mtimeMs === p.source.mtimeMs) { input = original; originals++; }
       }
       let image = sharp(input, { limitInputPixels: 80_000_000 }).rotate().flatten({ background: '#ffffff' });
-      if (p.capturedAt) image = image.withExif({ IFD0: { DateTime: p.capturedAt.slice(0,19).replace('T',' ').replace(/-/g,':') } });
+      if (p.capturedAt && p.capturedAt.length >= 19) image = image.withExif({ IFD0: { DateTime: p.capturedAt.slice(0,19).replace('T',' ').replace(/-/g,':') } });
       await writeFile(resolve(folder, `${tripDay(p) || 'undated'}-${p.id.slice(0,12)}.jpg`), await image.jpeg({ quality: 92 }).toBuffer());
     }
     return { folder, written: selection.length, originals, copies: selection.length - originals };

@@ -95,6 +95,8 @@ export interface Photo {
   width: number;
   height: number;
   capturedAt: string | null;
+  // Rounded (about 1 km) location read when the photo was chosen; absent for photos chosen before trips.
+  place?: { lat: number; lon: number } | null;
   status: 'pending' | 'indexing' | 'ready' | 'error';
   analysis: Analysis | null;
   error: string | null;

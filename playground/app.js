@@ -385,6 +385,7 @@ async function loadTrip() {
   $('trip-tag').disabled = !!trip.tagging || !trip.pending || !state?.configured;
   $('trip-tag').textContent = trip.tagging ? 'Checking…' : needsKey ? 'Load a model key to find people' : trip.pending ? `Find people in ${trip.pending} photos (${Math.ceil(trip.pending/12)} requests)` : 'All trip photos checked';
   clearTimeout(tripTimer); if (trip.tagging) tripTimer = setTimeout(()=>loadTrip().catch(()=>{}),1500);
+  renderTripMap(trip);
   const includeUncertain = $('trip-uncertain').checked;
   $('trip-members').replaceChildren();
   for (const member of trip.members) {
@@ -409,6 +410,61 @@ async function loadTrip() {
     section.append(heading,sub,thumbs,exportButton); $('trip-members').append(section);
   }
 }
+// Trip map: one marker per rounded spot (about 1 km), sized by photo count. Tiles come from OpenStreetMap,
+// which sees only the map area being viewed; photo locations stay on this Mac.
+let tripMap = null, tripLayer = null, mappedTrip = null;
+function renderTripMap(trip) {
+  mappedTrip = trip;
+  const wrap = $('trip-map-wrap'), select = $('trip-map-person');
+  wrap.hidden = !trip.places.length && !trip.photos;
+  if (wrap.hidden) return;
+  const chosen = select.value;
+  select.replaceChildren(new Option('Everyone',''));
+  for (const m of trip.members) select.append(new Option(`Where ${m.name} was found`, m.id));
+  select.value = trip.members.some(m=>m.id===chosen) ? chosen : '';
+  const spots = trip.places.filter(p=>!select.value || p.people.includes(select.value));
+  const located = trip.photos - trip.unplaced;
+  $('trip-map-note').textContent = !trip.places.length ? `None of the ${trip.photos} trip photos have a location yet. Photos keep a rounded location only when the camera recorded one.`
+    : `${located} of ${trip.photos} trip photos have a location, rounded to about 1 km.${select.value ? ` ${spots.length} of ${trip.places.length} spots include this person.` : ''}`;
+  if (!window.L) { $('trip-map').textContent = 'The map could not load.'; return; }
+  if (!tripMap) {
+    tripMap = L.map('trip-map', { scrollWheelZoom: false });
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, referrerPolicy: 'strict-origin-when-cross-origin', attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }).addTo(tripMap);
+    tripLayer = L.layerGroup().addTo(tripMap);
+  }
+  tripLayer.clearLayers();
+  const names = new Map(trip.members.map(m=>[m.id,m.name]));
+  const byId = new Map((state?.photos ?? []).map(p=>[p.id,p]));
+  // Map tiles are light in both themes, so markers use the light theme's deep lavender with a white ring.
+  for (const spot of spots) {
+    const marker = L.circleMarker([spot.lat, spot.lon], { radius: 7 + Math.min(14, Math.sqrt(spot.count) * 3), color: '#FFFFFF', fillColor: '#4E3F7E', fillOpacity: .85, weight: 2 });
+    const box = document.createElement('div');
+    const title = document.createElement('strong'); title.textContent = `${spot.count} ${spot.count === 1 ? 'photo' : 'photos'}`;
+    const who = document.createElement('div'); who.className = 'mode-note';
+    who.textContent = spot.people.length ? `Found here: ${spot.people.map(id=>names.get(id)).filter(Boolean).join(', ')}` : 'Nobody found here yet';
+    const grid = document.createElement('div'); grid.className = 'map-pop';
+    for (const id of spot.photoIds.slice(0,9)) {
+      const photo = byId.get(id); if (!photo) continue;
+      const button = document.createElement('button'); button.type = 'button'; button.setAttribute('aria-label', `Open ${photo.name}`);
+      const img = document.createElement('img'); img.src = photo.image; img.alt = photo.name; img.loading = 'lazy';
+      button.append(img); button.onclick = () => openPhoto(photo); grid.append(button);
+    }
+    box.append(title, who, grid);
+    marker.bindPopup(box, { maxWidth: 220 }).addTo(tripLayer);
+  }
+  mappedSpots = spots; fitTripMap();
+}
+// The map can be built while its screen or panel is hidden (zero size), so it is fitted again whenever it gets a size.
+let mappedSpots = [];
+function fitTripMap() {
+  const box = $('trip-map');
+  if (!tripMap || !box.offsetWidth || !box.offsetHeight) return;
+  tripMap.invalidateSize();
+  if (mappedSpots.length) tripMap.fitBounds(L.latLngBounds(mappedSpots.map(s=>[s.lat,s.lon])).pad(0.3), { maxZoom: 14 });
+  else tripMap.setView([20, 0], 1);
+}
+new ResizeObserver(() => fitTripMap()).observe($('trip-map'));
+$('trip-map-person').onchange = () => { if (mappedTrip) renderTripMap(mappedTrip); };
 $('trip-select').onchange = () => loadTrip().catch(e=>notice(e.message,true));
 $('trip-uncertain').onchange = () => loadTrip().catch(e=>notice(e.message,true));
 $('trip-panel').addEventListener('toggle',()=>{ if ($('trip-panel').open) loadMemories().catch(e=>notice(e.message,true)); });
