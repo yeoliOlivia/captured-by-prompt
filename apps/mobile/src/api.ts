@@ -1,8 +1,8 @@
 import { z } from 'zod';
-import { WorkspaceState, PublicPhoto, SavedMemory, SearchReply, type MemoryDraft, type SearchRequest } from '@captured/core/current';
+import { WorkspaceState, PublicPhoto, SavedMemory, SearchReply, TripSummary, type MemoryDraft, type Place, type SearchRequest } from '@captured/core/current';
 import { store } from './store';
 
-export async function callApi<T>(path: string, schema: z.ZodType<T>, body?: unknown, raw = false): Promise<T> {
+export async function callApi<T>(path: string, schema: z.ZodType<T>, body?: unknown, raw = false, extraHeaders: Record<string,string> = {}): Promise<T> {
   const url = await store.setting('server-url');
   const token = await store.token();
   if (!url || token.length < 32) throw new Error('Open Settings to connect your workspace first.');
@@ -12,7 +12,7 @@ export async function callApi<T>(path: string, schema: z.ZodType<T>, body?: unkn
   try {
     const response = await fetch(`${url.replace(/\/$/,'')}${path}`,{
       method: body === undefined ? 'GET' : 'POST',
-      headers: {Authorization:`Bearer ${token}`,...(body === undefined ? {} : {'Content-Type':raw ? 'application/octet-stream' : 'application/json'})},
+      headers: {Authorization:`Bearer ${token}`,...extraHeaders,...(body === undefined ? {} : {'Content-Type':raw ? 'application/octet-stream' : 'application/json'})},
       body: body === undefined ? undefined : raw ? body as Uint8Array<ArrayBuffer> : JSON.stringify(body), signal:controller.signal,
     });
     const data = await response.json();
@@ -28,7 +28,11 @@ export async function callApi<T>(path: string, schema: z.ZodType<T>, body?: unkn
 const ok = z.object({}).passthrough();
 export const api = {
   state: () => callApi('/state',WorkspaceState),
-  upload: (base64:string) => callApi('/upload',z.object({photo:PublicPhoto}),Uint8Array.from(atob(base64),c=>c.charCodeAt(0)),true),
+  // The preview is re-encoded without EXIF, so the capture date and rounded place travel as headers.
+  upload: (base64:string, meta:{capturedAt:string|null;place?:Place|null}={capturedAt:null}) => callApi('/upload',z.object({photo:PublicPhoto}),Uint8Array.from(atob(base64),c=>c.charCodeAt(0)),true,{
+    ...(meta.capturedAt ? {'x-captured-at':meta.capturedAt} : {}), ...(meta.place ? {'x-place':`${meta.place.lat},${meta.place.lon}`} : {}),
+  }),
+  trip: (id:string) => callApi(`/trips/${encodeURIComponent(id)}`,TripSummary),
   index: (photoIds:string[]) => callApi('/index',ok,{photoIds}),
   pause: () => callApi('/pause',ok,{}),
   search: (input:SearchRequest) => callApi('/search',SearchReply,input),

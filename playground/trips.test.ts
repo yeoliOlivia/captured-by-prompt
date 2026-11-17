@@ -71,6 +71,18 @@ describe('trip photo pooling', () => {
 
     summary = (await server.inject({ url: `/trips/${trip.id}`, headers: { host: 'localhost' } })).json();
     expect(summary.pending).toBe(0);
+    // All three trip photos were taken at the same rounded spot; both members were found there.
+    expect(summary.unplaced).toBe(0);
+    expect(summary.places).toEqual([{ lat: 37.77, lon: -122.42, count: 3, cover: byName('a1.jpg').id, photoIds: [byName('a1.jpg').id, byName('a2.jpg').id, byName('s1.jpg').id], people: expect.arrayContaining([alex.id, sam.id]) }]);
+    // Stats and groupings come from the saved answers: Alex is in all three photos, Sam in two (one is uncertain).
+    expect(summary.stats.appearances.map((m: any) => [m.name, m.count])).toEqual([['Alex', 3], ['Sam', 2]]);
+    expect(summary.stats.photographers).toEqual([{ name: 'alex', count: 2 }, { name: 'sam', count: 1 }]);
+    expect(summary.stats.days[0]).toEqual({ day: '2026-07-05', count: 2 });
+    expect(summary.groups.map((g: any) => [g.key.split(':')[0], g.title, g.count])).toEqual([['look', 'Most aesthetic', 3], ['pair', 'Alex and Sam', 2]]);
+    const world = (await server.inject({ url: '/trips', headers: { host: 'localhost' } })).json().trips;
+    expect(world).toHaveLength(1);
+    expect(world[0]).toMatchObject({ name: 'Tahoe', photos: 3, center: { lat: 37.77, lon: -122.42 }, places: [{ lat: 37.77, lon: -122.42, count: 3 }], topPhotographer: { name: 'alex', count: 2 } });
+    expect(world[0].members.map((m: any) => [m.name, m.count, m.face])).toEqual([['Alex', 3, byName('alex.jpg').id], ['Sam', 2, byName('sam.jpg').id]]);
     const [forAlex, forSam] = summary.members;
     // Alex gets Sam's photo, not their own; Sam gets Alex's photos, one of them uncertain.
     expect(forAlex.suggested.map((p: any) => p.name)).toEqual(['s1.jpg']);
@@ -113,5 +125,23 @@ describe('trip photo pooling', () => {
     const backfilled = JSON.parse(await readFile(recordPath, 'utf8'));
     expect(backfilled).toMatchObject({ capturedAt: '2026-07-05T13:00:00-07:00', place: { lat: 37.77, lon: -122.42 }, contributor: 'sam', metadataVersion: 1 });
     await restarted.close();
+  });
+
+  it('keeps the date, rounded place and owner the phone sends with a re-encoded preview', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'captured-phone-'));
+    const server = await createPlaygroundServer({ datasetDir: dir, mobileToken: 't'.repeat(64) });
+    const headers = { host: '192.168.1.2:8790', authorization: `Bearer ${'t'.repeat(64)}` };
+    const upload = async (color: string, extra: Record<string, string> = {}) => (await server.inject({ method: 'POST', url: '/upload',
+      headers: { ...headers, 'content-type': 'application/octet-stream', ...extra },
+      payload: await sharp({ create: { width: 20, height: 20, channels: 3, background: color } }).jpeg().toBuffer() })).json().photo;
+    try {
+      // With no owner sent, the phone's photos belong to the person marked as me.
+      const ref = await upload('#123456');
+      await server.inject({ method: 'POST', url: '/context/save', headers, payload: { kind: 'person', name: 'Olivia', isMe: true, photoIds: [ref.id] } });
+      expect(await upload('#abcdef', { 'x-captured-at': '2026-07-04', 'x-place': '37.774929,-122.419416' }))
+        .toMatchObject({ capturedAt: '2026-07-04', place: { lat: 37.77, lon: -122.42 }, contributor: 'Olivia' });
+      expect(await upload('#fedcba', { 'x-contributor': encodeURIComponent('Sam'), 'x-place': 'nowhere', 'x-captured-at': 'yesterday' }))
+        .toMatchObject({ capturedAt: null, place: null, contributor: 'Sam' });
+    } finally { await server.close(); }
   });
 });

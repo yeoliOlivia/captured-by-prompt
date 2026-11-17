@@ -33,6 +33,7 @@ export default function Home() {
         <View style={s.sectionRow}><Text style={common.body}>Use my context</Text><Switch accessibilityLabel="Use my context" value={library.useContext} disabled={busy} onValueChange={library.setUseContext}/></View>
         <View style={s.sectionRow}><Text style={common.body}>Visually check matches</Text><Switch accessibilityLabel="Visually check matches" value={library.verify} disabled={busy} onValueChange={library.setVerify}/></View>
         <Button label="My context" secondary onPress={()=>{library.setEditingQuestion(null);router.push('/context');}} disabled={busy||!library.workspace}/>
+        <Button label="Trips" secondary onPress={()=>router.push('/trips')} disabled={busy||!library.workspace}/>
         {library.questions.map(q=><View key={q.term} style={s.consentCard}>
           <Text style={s.cardTitle}>{q.choices.length ? `Which ${q.term}?` : `What does “${q.term}” refer to?`}</Text>
           {(q.choices.length ? q.choices : library.memories.filter(m=>m.kind===q.kind)).map(m=><Button key={m.id} secondary label={`${m.name}${m.qualifier ? ' · '+m.qualifier : ''}`} disabled={busy} onPress={()=>{void library.bind(q,m);}}/>)}

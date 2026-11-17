@@ -133,7 +133,7 @@ export function LibraryProvider({children}:{children:ReactNode}) {
         let id=mapped[photo.id];
         if(!id || !existing.has(id)) {
           setNotice(`Uploading preview ${i+1} of ${selected.length}…`);
-          const result=await api.upload(await previewBase64(photo));id=result.photo.id;
+          const result=await api.upload(await previewBase64(photo),{capturedAt:photo.capturedAt,place:photo.place});id=result.photo.id;
           await store.link(photo.id,state.datasetId,id);
         }
         ids.push(id);

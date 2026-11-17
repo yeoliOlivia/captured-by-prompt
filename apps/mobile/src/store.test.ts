@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { analysis, photo, query } from '../../../packages/core/src/test-fixtures';

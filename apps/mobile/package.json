@@ -21,6 +21,7 @@
     "expo-image-manipulator": "~57.0.19",
     "expo-image-picker": "~57.0.19",
     "expo-linking": "~57.0.10",
+    "expo-maps": "^57.0.4",
     "expo-router": "~57.0.22",
     "expo-secure-store": "~57.0.4",
     "expo-sqlite": "~57.0.3",

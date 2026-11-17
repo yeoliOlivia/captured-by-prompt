@@ -10,6 +10,8 @@ export default function Layout() {
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="selection" options={{ title: 'Selected photos' }} />
       <Stack.Screen name="context" options={{ title: 'My context' }} />
+      <Stack.Screen name="trips" options={{ title: 'Trips' }} />
+      <Stack.Screen name="trip/[id]" options={{ title: 'Trip' }} />
       <Stack.Screen name="settings" options={{ title: 'Your workspace', presentation: 'modal' }} />
       <Stack.Screen name="photo/[id]" options={{ title: 'A closer look' }} />
     </Stack>

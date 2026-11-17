@@ -72,3 +72,17 @@ describe('index queue', () => {
     expect(result).toEqual({ completed: 1, paused: true }); expect(items[1]?.status).toBe('pending');
   });
 });
+
+describe('trip places from the phone', () => {
+  it('rounds iOS and Android picker GPS to about 1 km and ignores missing or null-island values', async () => {
+    const { exifPlace, SavedMemory } = await import('./current');
+    expect(exifPlace({ '{GPS}': { Latitude: 37.774929, LatitudeRef: 'N', Longitude: 122.419416, LongitudeRef: 'W' } })).toEqual({ lat: 37.77, lon: -122.42 });
+    expect(exifPlace({ GPSLatitude: 33.8688, GPSLatitudeRef: 'S', GPSLongitude: 151.2093, GPSLongitudeRef: 'E' })).toEqual({ lat: -33.87, lon: 151.21 });
+    expect(exifPlace({ DateTimeOriginal: '2026:07:04 12:00:00' })).toBeNull();
+    expect(exifPlace({ '{GPS}': { Latitude: 0, Longitude: 0 } })).toBeNull();
+    expect(exifPlace(null)).toBeNull();
+    // Trip members survive a round trip through the phone's memory schema.
+    const trip = { id: '6f1c2f0e-6a2b-4d0e-9c3a-1b2c3d4e5f60', revision: 1, kind: 'event', name: 'Tahoe', qualifier: '', aliases: [], notes: '', photoIds: [], isMe: false, startDate: '2026-07-04', endDate: '2026-07-06', memberIds: ['0b8a3c1e-2d4f-4a6b-8c9d-0e1f2a3b4c5d'] };
+    expect(SavedMemory.parse(trip).memberIds).toEqual(trip.memberIds);
+  });
+});

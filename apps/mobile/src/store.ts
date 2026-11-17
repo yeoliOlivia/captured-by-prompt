@@ -19,16 +19,21 @@ async function db() {
       CREATE TABLE IF NOT EXISTS workspace_photos (localId TEXT NOT NULL, datasetId TEXT NOT NULL, remoteId TEXT NOT NULL, PRIMARY KEY(localId,datasetId));
       UPDATE photos SET status = 'pending' WHERE status = 'indexing';
     `);
+    // Added for trips: a rounded location stored as JSON. Older databases gain the column once.
+    const columns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(photos)');
+    if (!columns.some(c => c.name === 'place')) await database.execAsync('ALTER TABLE photos ADD COLUMN place TEXT');
     return database;
   })();
   return opening;
 }
-type Row = Omit<Photo, 'analysis'> & { analysis: string | null };
+type Row = Omit<Photo, 'analysis' | 'place'> & { analysis: string | null; place: string | null };
 function fromRow(row: Row): Photo {
   let result = null;
   try { result = row.analysis ? AnalysisSchema.safeParse(JSON.parse(row.analysis)) : null; }
   catch { /* Legacy analysis is optional; a damaged cache must not hide the photo collection. */ }
-  return { ...row, analysis: result?.success ? result.data : null, status: row.status === 'ready' && !result?.success ? 'pending' : row.status };
+  let place: Photo['place'] = null;
+  try { place = row.place ? JSON.parse(row.place) : null; } catch { /* A damaged location only hides the photo from the trip map. */ }
+  return { ...row, place, analysis: result?.success ? result.data : null, status: row.status === 'ready' && !result?.success ? 'pending' : row.status };
 }
 export const store = {
   async links(datasetId: string): Promise<Record<string,string>> {
@@ -48,7 +53,7 @@ export const store = {
     await database.withExclusiveTransactionAsync(async tx => {
       const count = await tx.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM photos');
       if ((count?.count ?? 0) + photos.length > COLLECTION_LIMIT) throw new Error(`Choose no more than ${COLLECTION_LIMIT} photos.`);
-      for (const p of photos) await tx.runAsync('INSERT INTO photos (id, assetId, uri, width, height, capturedAt, status, addedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', p.id, p.assetId, p.uri, p.width, p.height, p.capturedAt, p.status, p.addedAt);
+      for (const p of photos) await tx.runAsync('INSERT INTO photos (id, assetId, uri, width, height, capturedAt, place, status, addedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', p.id, p.assetId, p.uri, p.width, p.height, p.capturedAt, p.place ? JSON.stringify(p.place) : null, p.status, p.addedAt);
       await tx.runAsync('DELETE FROM searches');
     });
   },
