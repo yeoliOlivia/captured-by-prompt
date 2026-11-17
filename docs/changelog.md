@@ -5,7 +5,7 @@ What changed in the app, newest first, in plain words. Add a line here when you 
 ## 2026-11-17
 
 **Map mode**
-- A **Map** switch in the top bar turns the whole page into a map of your trips. Each trip is a round photo pin that drops in, and hops when you hover over it.
+- A **List · Map** toggle at the top of the Trips screen turns the whole page into a map of your trips. Each trip is a round photo pin that drops in, and hops when you hover over it.
 - Click a pin to fly in. A card shows the trip's photos, dates, the people on it with how many photos each is in, who shows up most and who took the most photos. **Open trip** takes you to it.
 - The map is drawn in plain grey to match the page, and goes dark with the dark theme.
 

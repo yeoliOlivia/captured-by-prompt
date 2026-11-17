@@ -509,7 +509,8 @@ function setMapMode(on) {
   document.body.classList.toggle('map-mode', on);
   $('world').hidden = !on;
   if (!on) return;
-  $('world').style.top = `${document.querySelector('.topbar').getBoundingClientRect().bottom}px`;
+  const top = `${document.querySelector('.topbar').getBoundingClientRect().bottom}px`;
+  $('world').style.top = top; document.body.style.setProperty('--world-top', top);
   if (!window.L) { $('world-note').hidden = false; $('world-note').textContent = 'The map could not load.'; return; }
   if (!worldMap) {
     worldMap = L.map('world-map', { zoomControl: false, worldCopyJump: true, minZoom: 2 }).setView([25, 0], 2);
