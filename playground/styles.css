@@ -125,7 +125,6 @@ dialog::backdrop{background:rgba(15,15,18,.5)}
 .trip-thumbs img{width:64px;height:64px;object-fit:cover;border-radius:8px}
 .trip-map-wrap{margin-top:12px}
 .trip-map{height:340px;border:1px solid var(--line);border-radius:16px;overflow:hidden;margin-top:8px;background:var(--soft)}
-.trip-map .leaflet-popup-content-wrapper,.trip-map .leaflet-popup-tip{background:var(--paper);color:var(--ink)}
 .map-pop{display:grid;grid-template-columns:repeat(3,56px);gap:4px;margin-top:6px}
 .map-pop button{padding:0;border:0;background:none;cursor:pointer}
 .map-pop img{width:56px;height:56px;object-fit:cover;border-radius:6px;display:block}
@@ -305,3 +304,61 @@ button.spot-item{cursor:pointer}
 /* A portrait phone screen is too narrow for a two-page spread, so the album shows one page with its stack of edges. */
 @media(max-width:720px){.flip{left:0;width:100%}.leaf.l,.spine{display:none}.leaf.r{width:100%;border-radius:6px}.mount{width:26px;height:26px}.mount::after{left:5px;top:5px;width:7px;height:7px}.landing-intro{padding-top:96px}}
 @media(prefers-reduced-motion:reduce){.story{display:none}.screen[data-screen=search]{padding-top:40px}.screen[data-screen=search] > .hero{min-height:0;margin-top:0;padding-top:24px}}
+
+/* Map mode: a full-screen map of every trip. Tiles are drawn grey so the photo pins carry the colour. */
+.switch{display:inline-flex;align-items:center;gap:8px;border:0;background:none;padding:6px 4px;font-size:14px;font-weight:500;color:var(--muted)}
+.switch[aria-checked=true]{color:var(--ink)}
+.switch-track{width:38px;height:22px;border-radius:999px;background:var(--line);position:relative;transition:background .2s}
+.switch-thumb{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:999px;background:var(--paper);box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .25s cubic-bezier(.3,1.5,.5,1)}
+.switch[aria-checked=true] .switch-track{background:var(--accent)}
+.switch[aria-checked=true] .switch-thumb{transform:translateX(16px)}
+body.map-mode{overflow:hidden}
+.world{position:fixed;left:0;right:0;bottom:0;z-index:4;background:var(--bg)}
+#world-map{position:absolute;inset:0}
+.world-note{position:absolute;left:16px;bottom:16px;z-index:500;background:var(--paper);border:1px solid var(--line);border-radius:999px;padding:7px 14px;font-size:13px;color:var(--muted)}
+.leaflet-container{background:var(--bg);font-family:var(--sans)}
+.leaflet-container .leaflet-control-attribution{background:transparent;color:var(--muted);font-size:10px}
+.leaflet-container .leaflet-control-attribution a{color:var(--muted)}
+.leaflet-bar{border:1px solid var(--line)!important;border-radius:12px;overflow:hidden;box-shadow:none}
+.leaflet-bar a,.leaflet-bar a:hover{background:var(--paper);color:var(--ink);border-bottom-color:var(--line)}
+.leaflet-tile-pane{filter:grayscale(1) contrast(.78) brightness(1.1)}
+:root[data-theme=dark] .leaflet-tile-pane{filter:invert(1) grayscale(1) contrast(.82) brightness(.72)}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]) .leaflet-tile-pane{filter:invert(1) grayscale(1) contrast(.82) brightness(.72)}}
+.spot-dot{fill:var(--accent);stroke:var(--paper);stroke-width:2;fill-opacity:.85}
+.pin-wrap{background:none;border:0}
+.pin{display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer}
+.pin-body{position:relative;width:56px;height:56px;border-radius:999px;background:var(--paper);padding:3px;box-shadow:0 0 0 1.5px var(--accent-line),0 6px 14px rgba(29,29,31,.18);transition:transform .25s cubic-bezier(.3,1.5,.5,1),box-shadow .2s}
+.pin-body::after{content:"";position:absolute;left:50%;bottom:-5px;width:10px;height:10px;background:var(--paper);transform:translateX(-50%) rotate(45deg);border-radius:2px;box-shadow:1.5px 1.5px 0 var(--accent-line);z-index:-1}
+.pin-body img,.pin-body .pin-blank{width:100%;height:100%;border-radius:999px;object-fit:cover;display:block;background:var(--accent-soft)}
+.pin-count{position:absolute;top:-6px;right:-8px;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:var(--accent);color:var(--accent-ink);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid var(--paper)}
+.pin-name{background:var(--paper);border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:12px;font-weight:600;color:var(--ink);white-space:nowrap;margin-top:4px}
+.pin.is-open .pin-body{transform:scale(1.12);box-shadow:0 0 0 3px var(--accent),0 8px 18px rgba(29,29,31,.22)}
+@media(prefers-reduced-motion:no-preference){
+  .pin{animation:pin-drop .6s cubic-bezier(.3,1.4,.5,1) both;animation-delay:calc(var(--i,0)*110ms)}
+  .pin:hover .pin-body,.leaflet-marker-icon:focus-visible .pin-body{animation:pin-hop .6s ease}
+  .trip-card .leaflet-popup-content-wrapper{animation:card-pop .28s cubic-bezier(.3,1.4,.5,1) both}
+  .spot-dot{animation:rise .3s ease-out both}
+}
+@keyframes pin-drop{0%{transform:translateY(-46px) scale(.6);opacity:0}60%{transform:translateY(5px) scale(1.04);opacity:1}80%{transform:translateY(-2px)}100%{transform:none}}
+@keyframes pin-hop{0%,100%{transform:none}22%{transform:translateY(-11px) rotate(-7deg)}45%{transform:translateY(0) rotate(6deg)}65%{transform:translateY(-4px) rotate(-3deg)}82%{transform:rotate(2deg)}}
+@keyframes card-pop{from{transform:scale(.88) translateY(8px);opacity:0}to{transform:none;opacity:1}}
+.trip-card .leaflet-popup-content-wrapper{background:var(--paper);color:var(--ink);border:1px solid var(--line);border-radius:var(--radius);box-shadow:0 14px 34px rgba(29,29,31,.18);padding:0;transform-origin:bottom center}
+.trip-card .leaflet-popup-content{margin:0;width:280px!important;padding:14px;font-size:14px;line-height:1.45}
+.trip-card .leaflet-popup-tip{background:var(--paper);box-shadow:none;border:1px solid var(--line)}
+.card-photos{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-bottom:12px}
+.card-photos img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:var(--radius-s);display:block}
+.card-title{font-size:19px;font-weight:600;letter-spacing:-.02em}
+.card-people{display:flex;flex-wrap:wrap;gap:0;margin:10px 0 4px}
+.card-people .chip{cursor:default}
+.card-people .chip small{color:var(--muted);font-weight:500}
+.card-facts{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;margin:10px 0 12px;font-size:13px}
+.card-facts dt{margin:0}.card-facts dd{margin:0;font-weight:500}
+.trip-card .primary{width:100%;padding:10px 16px}
+/* Trip stats and groupings */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px}
+.stat{border:1px solid var(--line);border-radius:16px;background:var(--paper);padding:14px 16px}
+.stat strong{display:block;font-size:20px;font-weight:600;letter-spacing:-.02em;margin-top:4px;text-transform:capitalize}
+.stat span{font-size:13px;color:var(--muted)}
+.trip-group{padding:16px 20px;border:1px solid var(--line);border-radius:16px;background:var(--paper);margin-top:10px}
+.trip-group .trip-head{justify-content:space-between}
+.trip-thumbs button{padding:0;border:0;background:none;border-radius:8px}

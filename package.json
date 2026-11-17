@@ -20,6 +20,7 @@
     "bench:providers": "node --import tsx scripts/compare-providers.ts",
     "test:faces:build": "uv run --with pillow python scripts/build-face-test.py",
     "test:faces:score": "node --import tsx scripts/score-face-test.ts",
+    "demo:trips": "node --import tsx scripts/seed-demo-trips.ts",
     "dev:api": "node --import tsx scripts/start-server.ts",
     "dev:mobile": "npm run start --workspace @captured/mobile",
     "typecheck": "npm run typecheck --workspaces --if-present && npm run typecheck:server",

@@ -385,7 +385,7 @@ async function loadTrip() {
   $('trip-tag').disabled = !!trip.tagging || !trip.pending || !state?.configured;
   $('trip-tag').textContent = trip.tagging ? 'Checking…' : needsKey ? 'Load a model key to find people' : trip.pending ? `Find people in ${trip.pending} photos (${Math.ceil(trip.pending/12)} requests)` : 'All trip photos checked';
   clearTimeout(tripTimer); if (trip.tagging) tripTimer = setTimeout(()=>loadTrip().catch(()=>{}),1500);
-  renderTripMap(trip);
+  renderTripMap(trip); renderTripStats(trip);
   const includeUncertain = $('trip-uncertain').checked;
   $('trip-members').replaceChildren();
   for (const member of trip.members) {
@@ -410,8 +410,46 @@ async function loadTrip() {
     section.append(heading,sub,thumbs,exportButton); $('trip-members').append(section);
   }
 }
-// Trip map: one marker per rounded spot (about 1 km), sized by photo count. Tiles come from OpenStreetMap,
-// which sees only the map area being viewed; photo locations stay on this Mac.
+const shortDate = day => new Date(`${day}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+// Headline numbers and ready-made sets for a trip. All of it comes from saved answers and pixels; no model call.
+function renderTripStats(trip) {
+  const tiles = [], { appearances, photographers, days } = trip.stats;
+  if (appearances[0]?.count) tiles.push(['Shows up most', appearances[0].name, `in ${plural(appearances[0].count, 'photo')}`]);
+  if (photographers[0]) tiles.push(['Took the most', photographers[0].name, plural(photographers[0].count, 'photo')]);
+  if (days[0]) tiles.push(['Busiest day', shortDate(days[0].day), plural(days[0].count, 'photo')]);
+  if (trip.places.length) tiles.push(['Places', String(trip.places.length), `${trip.photos - trip.unplaced} of ${trip.photos} photos located`]);
+  $('trip-stats').hidden = !tiles.length;
+  $('trip-stats').replaceChildren(...tiles.map(([label, value, sub]) => {
+    const tile = document.createElement('div'); tile.className = 'stat';
+    const name = document.createElement('p'); name.className = 'mono'; name.textContent = label;
+    const big = document.createElement('strong'); big.textContent = value;
+    const small = document.createElement('span'); small.textContent = sub;
+    tile.append(name, big, small); return tile;
+  }));
+  $('trip-groups').replaceChildren(...trip.groups.map(group => {
+    const section = document.createElement('div'); section.className = 'trip-group';
+    const head = document.createElement('div'); head.className = 'trip-head';
+    const title = document.createElement('strong'); title.textContent = group.title;
+    const count = document.createElement('span'); count.className = 'mono'; count.textContent = plural(group.count, 'photo');
+    head.append(title, count); section.append(head);
+    if (group.note) { const note = document.createElement('p'); note.className = 'mode-note'; note.textContent = group.note; section.append(note); }
+    const thumbs = document.createElement('div'); thumbs.className = 'trip-thumbs';
+    for (const photo of group.photos) {
+      const button = document.createElement('button'); button.type = 'button'; button.setAttribute('aria-label', `Open ${photo.name}`);
+      const img = document.createElement('img'); img.src = photo.image; img.alt = photo.name; img.loading = 'lazy';
+      button.append(img); button.onclick = () => openPhoto(photo); thumbs.append(button);
+    }
+    section.append(thumbs); return section;
+  }));
+}
+// Map tiles are standard OpenStreetMap tiles, drawn grey (and inverted in the dark theme) by CSS so they match the
+// page. OpenStreetMap sees only the map area being viewed; photo locations stay on this Mac.
+function addTiles(map) {
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, referrerPolicy: 'strict-origin-when-cross-origin',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }).addTo(map);
+}
+// Trip map: one marker per rounded spot (about 1 km), sized by photo count.
 let tripMap = null, tripLayer = null, mappedTrip = null;
 function renderTripMap(trip) {
   mappedTrip = trip;
@@ -429,15 +467,14 @@ function renderTripMap(trip) {
   if (!window.L) { $('trip-map').textContent = 'The map could not load.'; return; }
   if (!tripMap) {
     tripMap = L.map('trip-map', { scrollWheelZoom: false });
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, referrerPolicy: 'strict-origin-when-cross-origin', attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }).addTo(tripMap);
+    addTiles(tripMap);
     tripLayer = L.layerGroup().addTo(tripMap);
   }
   tripLayer.clearLayers();
   const names = new Map(trip.members.map(m=>[m.id,m.name]));
   const byId = new Map((state?.photos ?? []).map(p=>[p.id,p]));
-  // Map tiles are light in both themes, so markers use the light theme's deep lavender with a white ring.
   for (const spot of spots) {
-    const marker = L.circleMarker([spot.lat, spot.lon], { radius: 7 + Math.min(14, Math.sqrt(spot.count) * 3), color: '#FFFFFF', fillColor: '#4E3F7E', fillOpacity: .85, weight: 2 });
+    const marker = L.circleMarker([spot.lat, spot.lon], { radius: 7 + Math.min(14, Math.sqrt(spot.count) * 3), className: 'spot-dot' });
     const box = document.createElement('div');
     const title = document.createElement('strong'); title.textContent = `${spot.count} ${spot.count === 1 ? 'photo' : 'photos'}`;
     const who = document.createElement('div'); who.className = 'mode-note';
@@ -450,7 +487,7 @@ function renderTripMap(trip) {
       button.append(img); button.onclick = () => openPhoto(photo); grid.append(button);
     }
     box.append(title, who, grid);
-    marker.bindPopup(box, { maxWidth: 220 }).addTo(tripLayer);
+    marker.bindPopup(box, { maxWidth: 300, className: 'trip-card', closeButton: false }).addTo(tripLayer);
   }
   mappedSpots = spots; fitTripMap();
 }
@@ -465,6 +502,90 @@ function fitTripMap() {
 }
 new ResizeObserver(() => fitTripMap()).observe($('trip-map'));
 $('trip-map-person').onchange = () => { if (mappedTrip) renderTripMap(mappedTrip); };
+// Map mode: the whole page becomes one map with a photo pin per trip. Click a pin to fly in and see who was there.
+let worldMap = null, worldPins = null, worldSpots = null, worldTrips = [];
+function setMapMode(on) {
+  $('map-toggle').setAttribute('aria-checked', String(on));
+  document.body.classList.toggle('map-mode', on);
+  $('world').hidden = !on;
+  if (!on) return;
+  $('world').style.top = `${document.querySelector('.topbar').getBoundingClientRect().bottom}px`;
+  if (!window.L) { $('world-note').hidden = false; $('world-note').textContent = 'The map could not load.'; return; }
+  if (!worldMap) {
+    worldMap = L.map('world-map', { zoomControl: false, worldCopyJump: true, minZoom: 2 }).setView([25, 0], 2);
+    L.control.zoom({ position: 'bottomright' }).addTo(worldMap);
+    addTiles(worldMap);
+    worldSpots = L.layerGroup().addTo(worldMap); worldPins = L.layerGroup().addTo(worldMap);
+    worldMap.on('popupclose', () => { worldSpots.clearLayers(); for (const pin of document.querySelectorAll('.pin.is-open')) pin.classList.remove('is-open'); });
+  }
+  worldMap.invalidateSize();
+  loadWorld().catch(e => notice(e.message, true));
+}
+async function loadWorld() {
+  const response = await fetch('/trips'); const data = await response.json();
+  if (!response.ok) throw new Error(data.message || 'Could not load trips.');
+  worldTrips = data.trips;
+  const placed = worldTrips.filter(t => t.center), missing = worldTrips.filter(t => !t.center);
+  $('world-note').hidden = !!placed.length && !missing.length;
+  $('world-note').textContent = !worldTrips.length ? 'No trips yet. Add a trip with dates and members under People.'
+    : !placed.length ? 'None of your trips have photos with a location yet.' : `No located photos yet: ${missing.map(t => t.name).join(', ')}`;
+  worldMap.closePopup(); worldPins.clearLayers();
+  placed.forEach((trip, i) => {
+    const pin = document.createElement('div'); pin.className = 'pin'; pin.style.setProperty('--i', i);
+    const body = document.createElement('div'); body.className = 'pin-body';
+    if (trip.covers[0]) { const img = document.createElement('img'); img.src = `/photos/${trip.covers[0]}`; img.alt = ''; body.append(img); }
+    else { const blank = document.createElement('span'); blank.className = 'pin-blank'; body.append(blank); }
+    const count = document.createElement('span'); count.className = 'pin-count'; count.textContent = trip.photos;
+    const name = document.createElement('span'); name.className = 'pin-name'; name.textContent = trip.name;
+    body.append(count); pin.append(body, name);
+    const marker = L.marker([trip.center.lat, trip.center.lon], { icon: L.divIcon({ className: 'pin-wrap', html: pin, iconSize: [96, 96], iconAnchor: [48, 66] }), alt: `${trip.name}, ${plural(trip.photos, 'photo')}`, riseOnHover: true });
+    marker.on('click', () => openWorldTrip(trip, marker, pin)).addTo(worldPins);
+  });
+  if (placed.length) worldMap.fitBounds(L.latLngBounds(placed.map(t => [t.center.lat, t.center.lon])).pad(0.35), { maxZoom: 6 });
+}
+// Flies in a little, shows the trip's spots as dots, then opens its card.
+function openWorldTrip(trip, marker, pin) {
+  worldMap.closePopup();
+  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const zoom = Math.min(Math.max(worldMap.getZoom() + 2, 7), 10);
+  const show = () => {
+    pin.classList.add('is-open');
+    for (const spot of trip.places) L.circleMarker([spot.lat, spot.lon], { radius: 5 + Math.min(6, Math.sqrt(spot.count)), className: 'spot-dot', interactive: false }).addTo(worldSpots);
+    L.popup({ className: 'trip-card', closeButton: false, offset: [0, -62], maxWidth: 300, autoPanPadding: [24, 24] }).setLatLng(marker.getLatLng()).setContent(tripCard(trip)).openOn(worldMap);
+  };
+  // Starting a flight ends any earlier movement first, so the card waits for the end of this one.
+  if (still) { worldMap.setView(marker.getLatLng(), zoom, { animate: false }); show(); }
+  else { worldMap.flyTo(marker.getLatLng(), zoom, { duration: 0.9 }); worldMap.once('moveend', show); }
+}
+function tripCard(trip) {
+  const card = document.createElement('div');
+  if (trip.covers.length) {
+    const photos = document.createElement('div'); photos.className = 'card-photos';
+    for (const id of trip.covers) { const img = document.createElement('img'); img.src = `/photos/${id}`; img.alt = ''; photos.append(img); }
+    card.append(photos);
+  }
+  const title = document.createElement('div'); title.className = 'card-title'; title.textContent = trip.name;
+  const when = document.createElement('p'); when.className = 'mono';
+  when.textContent = `${trip.startDate ? `${shortDate(trip.startDate)} – ${shortDate(trip.endDate)} · ` : ''}${plural(trip.photos, 'photo')} · ${plural(trip.places.length, 'place')}`;
+  const people = document.createElement('div'); people.className = 'card-people';
+  for (const m of trip.members) {
+    const chip = document.createElement('span'); chip.className = 'chip';
+    const count = document.createElement('small'); count.textContent = m.count;
+    chip.append(avatar({ name: m.name, photoIds: m.face ? [m.face] : [] }, 22), m.name, count); chip.title = `${m.name} is in ${plural(m.count, 'photo')}`;
+    people.append(chip);
+  }
+  const facts = document.createElement('dl'); facts.className = 'card-facts';
+  const fact = (label, value) => { const dt = document.createElement('dt'); dt.className = 'mono'; dt.textContent = label; const dd = document.createElement('dd'); dd.textContent = value; facts.append(dt, dd); };
+  if (trip.members[0]?.count) fact('Shows up most', trip.members[0].name);
+  // Photos are credited by phone folder name; show the matching member's name when there is one.
+  if (trip.topPhotographer) fact('Took the most', `${trip.members.find(m => m.name.toLowerCase() === trip.topPhotographer.name.toLowerCase())?.name ?? trip.topPhotographer.name} · ${trip.topPhotographer.count}`);
+  const open = document.createElement('button'); open.type = 'button'; open.className = 'primary'; open.textContent = 'Open trip';
+  open.onclick = async () => { showScreen('trips'); await loadMemories().catch(() => {}); $('trip-select').value = trip.id; loadTrip().catch(e => notice(e.message, true)); };
+  card.append(title, when, people, facts, open);
+  return card;
+}
+$('map-toggle').onclick = () => setMapMode($('map-toggle').getAttribute('aria-checked') !== 'true');
+addEventListener('resize', () => { if (!$('world').hidden) { $('world').style.top = `${document.querySelector('.topbar').getBoundingClientRect().bottom}px`; worldMap?.invalidateSize(); } });
 $('trip-select').onchange = () => loadTrip().catch(e=>notice(e.message,true));
 $('trip-uncertain').onchange = () => loadTrip().catch(e=>notice(e.message,true));
 $('trip-panel').addEventListener('toggle',()=>{ if ($('trip-panel').open) loadMemories().catch(e=>notice(e.message,true)); });
@@ -476,6 +597,7 @@ $('trip-tag').onclick = async () => {
 
 // Screens and theme. The page is one document; the top bar shows one screen at a time.
 function showScreen(name) {
+  setMapMode(false);
   for (const screen of document.querySelectorAll('[data-screen]')) screen.hidden = screen.dataset.screen !== name;
   for (const button of document.querySelectorAll('.nav button')) { if (button.dataset.go === name) button.setAttribute('aria-current','page'); else button.removeAttribute('aria-current'); }
   try { sessionStorage.setItem('captured-screen',name); } catch {}

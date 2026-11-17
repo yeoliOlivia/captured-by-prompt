@@ -74,6 +74,15 @@ describe('trip photo pooling', () => {
     // All three trip photos were taken at the same rounded spot; both members were found there.
     expect(summary.unplaced).toBe(0);
     expect(summary.places).toEqual([{ lat: 37.77, lon: -122.42, count: 3, cover: byName('a1.jpg').id, photoIds: [byName('a1.jpg').id, byName('a2.jpg').id, byName('s1.jpg').id], people: expect.arrayContaining([alex.id, sam.id]) }]);
+    // Stats and groupings come from the saved answers: Alex is in all three photos, Sam in two (one is uncertain).
+    expect(summary.stats.appearances.map((m: any) => [m.name, m.count])).toEqual([['Alex', 3], ['Sam', 2]]);
+    expect(summary.stats.photographers).toEqual([{ name: 'alex', count: 2 }, { name: 'sam', count: 1 }]);
+    expect(summary.stats.days[0]).toEqual({ day: '2026-07-05', count: 2 });
+    expect(summary.groups.map((g: any) => [g.key.split(':')[0], g.title, g.count])).toEqual([['look', 'Most aesthetic', 3], ['pair', 'Alex and Sam', 2]]);
+    const world = (await server.inject({ url: '/trips', headers: { host: 'localhost' } })).json().trips;
+    expect(world).toHaveLength(1);
+    expect(world[0]).toMatchObject({ name: 'Tahoe', photos: 3, center: { lat: 37.77, lon: -122.42 }, places: [{ lat: 37.77, lon: -122.42, count: 3 }], topPhotographer: { name: 'alex', count: 2 } });
+    expect(world[0].members.map((m: any) => [m.name, m.count, m.face])).toEqual([['Alex', 3, byName('alex.jpg').id], ['Sam', 2, byName('sam.jpg').id]]);
     const [forAlex, forSam] = summary.members;
     // Alex gets Sam's photo, not their own; Sam gets Alex's photos, one of them uncertain.
     expect(forAlex.suggested.map((p: any) => p.name)).toEqual(['s1.jpg']);

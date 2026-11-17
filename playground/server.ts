@@ -38,6 +38,42 @@ export function phoneMetadata(headers: Record<string, unknown>) {
   try { contributor = h['x-contributor'] ? decodeURIComponent(h['x-contributor']).replace(/[\x00-\x1f]/g, '').trim().slice(0,100) || null : null; } catch { /* Malformed names are ignored. */ }
   return { capturedAt: h['x-captured-at'] ?? null, place, contributor };
 }
+// A rough, free "how good does this look" score from pixels alone: colourful, contrasty, well exposed and sharp.
+// It is a sorting hint for the trip's highlights, not a judgment by a model.
+export async function lookScore(path: string): Promise<number> {
+  const { data } = await sharp(path, { limitInputPixels: 80_000_000 }).resize(96, 96, { fit: 'cover' }).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  const n = data.length / 3, luma = new Float32Array(n);
+  let rg = 0, yb = 0, rg2 = 0, yb2 = 0, sum = 0, sum2 = 0;
+  for (let i = 0; i < n; i++) {
+    const r = data[i * 3], g = data[i * 3 + 1], b = data[i * 3 + 2], a = r - g, c = (r + g) / 2 - b, l = 0.299 * r + 0.587 * g + 0.114 * b;
+    rg += a; yb += c; rg2 += a * a; yb2 += c * c; sum += l; sum2 += l * l; luma[i] = l;
+  }
+  const sd = (total: number, squares: number) => Math.sqrt(Math.max(0, squares / n - (total / n) ** 2));
+  // Hasler and Suesstrunk's colourfulness measure.
+  const colour = Math.sqrt(sd(rg, rg2) ** 2 + sd(yb, yb2) ** 2) + 0.3 * Math.sqrt((rg / n) ** 2 + (yb / n) ** 2);
+  const contrast = sd(sum, sum2), exposure = 1 - Math.abs(sum / n - 128) / 128;
+  let edges = 0;
+  for (let y = 1; y < 95; y++) for (let x = 1; x < 95; x++) { const i = y * 96 + x; edges += Math.abs(4 * luma[i] - luma[i - 1] - luma[i + 1] - luma[i - 96] - luma[i + 96]); }
+  const sharpness = edges / (94 * 94);
+  return Math.min(1, colour / 110) * 0.4 + Math.min(1, contrast / 70) * 0.25 + exposure * 0.2 + Math.min(1, sharpness / 30) * 0.15;
+}
+// Who shows up most, who took the most photos, and which members appear together, from the saved "present" answers.
+export function tripStats(inTrip: Photo[], members: { id: string; name: string }[], present: { photoId: string; memoryId: string }[]) {
+  const inPhoto = new Map<string, Set<string>>();
+  for (const t of present) inPhoto.set(t.photoId, (inPhoto.get(t.photoId) ?? new Set()).add(t.memoryId));
+  const tally = <T,>(values: T[]) => { const counts = new Map<T, number>(); for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1); return [...counts].sort((a, b) => b[1] - a[1]); };
+  const appearances = members.map(m => ({ id: m.id, name: m.name, count: present.filter(t => t.memoryId === m.id).length })).sort((a, b) => b.count - a.count);
+  const photographers = tally(inTrip.flatMap(p => p.contributor ? [p.contributor] : [])).map(([name, count]) => ({ name, count }));
+  const days = tally(inTrip.map(tripDay).filter(Boolean)).map(([day, count]) => ({ day, count }));
+  const pairs = [];
+  for (let i = 0; i < members.length; i++) for (let j = i + 1; j < members.length; j++) {
+    const photoIds = inTrip.filter(p => inPhoto.get(p.id)?.has(members[i].id) && inPhoto.get(p.id)?.has(members[j].id)).map(p => p.id);
+    if (photoIds.length) pairs.push({ ids: [members[i].id, members[j].id], names: [members[i].name, members[j].name], photoIds });
+  }
+  pairs.sort((a, b) => b.photoIds.length - a.photoIds.length);
+  const everyone = members.length > 2 ? inTrip.filter(p => members.every(m => inPhoto.get(p.id)?.has(m.id))).map(p => p.id) : [];
+  return { appearances, photographers, days, pairs, everyone };
+}
 // Groups trip photos by their rounded location (about 1 km), with who was found in each spot.
 export function tripPlaces(inTrip: Photo[], present: { photoId: string; memoryId: string }[]) {
   const spots = new Map<string, { lat: number; lon: number; photoIds: string[]; people: Set<string> }>();
@@ -171,7 +207,7 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
     if ((!local || request.headers.authorization) && !authenticated) return reply.code(401).send({message:'Connect using the workspace token in mobile Settings.'});
     if (authenticated && request.headers.origin && request.headers.origin !== `http://${host}`) return reply.code(403).send({message:'Cross-origin access is not allowed.'});
     reply.header('Cache-Control', 'no-store').header('Referrer-Policy', 'no-referrer').header('X-Content-Type-Options', 'nosniff');
-    reply.header('Content-Security-Policy', "default-src 'self'; img-src 'self' https://tile.openstreetmap.org; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+    reply.header('Content-Security-Policy', "default-src 'self'; img-src 'self' data: https://tile.openstreetmap.org; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     if (request.method === 'POST' && !authenticated) {
       if (request.headers.origin && request.headers.origin !== `http://${host}`) return reply.code(403).send({ message: 'Use the local page.' });
       const supplied = Buffer.from(String(request.headers['x-playground-session'] ?? ''));
@@ -392,6 +428,43 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
   };
   // Photos taken on a member's own phone are not suggested back to them.
   const ownPhoto = (member: Memory, p: Photo) => !!p.contributor && matches(member, p.contributor);
+  // Look scores are cheap but not free, so they are computed once per photo per run.
+  const looks = new Map<string, number>();
+  async function look(p: Photo) {
+    if (!looks.has(p.id)) looks.set(p.id, await lookScore(resolve(datasetDir, `${p.id}.jpg`)).catch(() => 0));
+    return looks.get(p.id)!;
+  }
+  // Ready-made sets for curating a trip: pairs of members together, everyone together, the best-looking photos and scenery.
+  async function tripGroups(found: NonNullable<ReturnType<typeof tripOf>>, tags: PhotoTag[], stats: ReturnType<typeof tripStats>) {
+    const byId = new Map(found.photos.map(p => [p.id, p]));
+    const show = (ids: string[]) => ids.slice(0, 12).map(id => expose(byId.get(id)!));
+    const groups: { key: string; title: string; note: string; count: number; photos: ReturnType<typeof expose>[] }[] = [];
+    const scored = [];
+    for (let i = 0; i < found.photos.length; i += 16) scored.push(...await Promise.all(found.photos.slice(i, i + 16).map(async p => ({ id: p.id, score: await look(p) }))));
+    scored.sort((a, b) => b.score - a.score);
+    if (scored.length) groups.push({ key: 'look', title: 'Most aesthetic', note: 'Sorted by colour, contrast, exposure and sharpness. No model call.', count: Math.min(12, scored.length), photos: show(scored.map(s => s.id)) });
+    if (stats.everyone.length) groups.push({ key: 'everyone', title: 'Everyone together', note: '', count: stats.everyone.length, photos: show(stats.everyone) });
+    for (const pair of stats.pairs.slice(0, 4)) groups.push({ key: `pair:${pair.ids.join(':')}`, title: `${pair.names[0]} and ${pair.names[1]}`, note: '', count: pair.photoIds.length, photos: show(pair.photoIds) });
+    // Scenery: every member was checked and none was found.
+    const checked = new Map<string, number>(), seen = new Set(tags.filter(t => t.status !== 'absent').map(t => t.photoId));
+    for (const t of tags) checked.set(t.photoId, (checked.get(t.photoId) ?? 0) + 1);
+    const scenery = scored.filter(s => checked.get(s.id) === found.members.length && !seen.has(s.id)).map(s => s.id);
+    if (scenery.length) groups.push({ key: 'scenery', title: 'Scenery', note: 'Photos where nobody on the trip was found.', count: scenery.length, photos: show(scenery) });
+    return groups;
+  }
+  // Every trip with members, for map mode: where it was, who was on it and the headline numbers.
+  server.get('/trips', async () => ({ trips: contextStore.list().filter(m => m.kind === 'event' && m.memberIds.length).map(m => {
+    const found = tripOf(m.id)!;
+    const present = currentTags(found.photos.map(p => p.id), found.members).filter(t => t.status === 'present');
+    const places = tripPlaces(found.photos, present), located = places.reduce((n, s) => n + s.count, 0);
+    const stats = tripStats(found.photos, found.members, present);
+    return { id: m.id, name: m.name, qualifier: m.qualifier, startDate: m.startDate, endDate: m.endDate, photos: found.photos.length,
+      center: located ? { lat: places.reduce((n, s) => n + s.lat * s.count, 0) / located, lon: places.reduce((n, s) => n + s.lon * s.count, 0) / located } : null,
+      places: places.map(({ lat, lon, count }) => ({ lat, lon, count })),
+      covers: [...new Set([...places.map(s => s.cover), ...found.photos.map(p => p.id)])].slice(0, 3),
+      members: stats.appearances.map(a => ({ ...a, face: found.members.find(x => x.id === a.id)?.photoIds[0] ?? null })),
+      topPhotographer: stats.photographers[0] ?? null };
+  }) }));
   // How many photos a draft date range would include, so the trip editor can show it as the dates change.
   server.get('/trips/preview', async (req, reply) => {
     const dates = z.object({ start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).safeParse(req.query);
@@ -405,13 +478,15 @@ export async function createPlaygroundServer(options: { datasetDir?: string; mob
     const byId = new Map(inTrip.map(p => [p.id, p]));
     const tags = currentTags(inTrip.map(p => p.id), members);
     const linked = new Set(trip.photoIds);
+    const present = tags.filter(t => t.status === 'present'), stats = tripStats(inTrip, members, present);
     return {
       trip: { id: trip.id, name: trip.name, qualifier: trip.qualifier, startDate: trip.startDate, endDate: trip.endDate },
       photos: inTrip.length, pending: pendingPhotos(found).length,
       cover: [...inTrip].sort((a, b) => tripDay(a).localeCompare(tripDay(b)))[0]?.id ?? null,
       undated: photos.filter(p => !p.capturedAt && !linked.has(p.id)).length,
       contributors: [...new Set(inTrip.map(p => p.contributor).filter(Boolean))],
-      places: tripPlaces(inTrip, tags.filter(t => t.status === 'present')), unplaced: inTrip.filter(p => !p.place).length,
+      places: tripPlaces(inTrip, present), unplaced: inTrip.filter(p => !p.place).length,
+      stats: { appearances: stats.appearances, photographers: stats.photographers, days: stats.days }, groups: await tripGroups(found, tags, stats),
       tagging: tagging?.tripId === trip.id ? tagging : null, error: tagError,
       members: members.map(m => {
         const pick = (status: PhotoTag['status']) => tags.filter(t => t.memoryId === m.id && t.status === status).map(t => byId.get(t.photoId)!)
